@@ -74,9 +74,11 @@ public class AlphaBetaGamer extends StateMachineGamer {
 	private int minScore(Role role, Move action, MachineState state, int alpha, int beta) {
 		StateMachine stateMachine = getStateMachine();
 		List<Role> roles = stateMachine.getRoles();
+		ArrayList<Role> opponents = new ArrayList<Role>(roles);
 
 		// Only works for one opponent
-		Role opponent = roles.get(1);
+		opponents.remove(getRole());
+		Role opponent = opponents.get(0);
 
 		try {
 			List<Move> actions = stateMachine.getLegalMoves(state, opponent);

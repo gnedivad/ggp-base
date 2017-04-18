@@ -69,16 +69,18 @@ public class MinimaxGamer extends StateMachineGamer {
 	private int minScore(Role role, Move action, MachineState state) {
 		StateMachine stateMachine = getStateMachine();
 		List<Role> roles = stateMachine.getRoles();
+		ArrayList<Role> opponents = new ArrayList<Role>(roles);
 
 		// Only works for one opponent
-		Role opponent = roles.get(1);
+		opponents.remove(getRole());
+		Role opponent = opponents.get(0);
 
 		try {
 			List<Move> actions = stateMachine.getLegalMoves(state, opponent);
 			int score = 100;
 			for (int i = 0; i < actions.size(); i++) {
 				List<Move> moves = new ArrayList<Move>();
-				if (role == roles.get(0)) {
+				if (role.equals(roles.get(0))) {
 					moves.add(action);
 					moves.add(actions.get(i));
 				} else {
