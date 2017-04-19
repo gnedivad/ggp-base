@@ -84,7 +84,7 @@ public class AlphaBetaGamer extends StateMachineGamer {
 			List<Move> actions = stateMachine.getLegalMoves(state, opponent);
 			for (int i = 0; i < actions.size(); i++) {
 				List<Move> moves = new ArrayList<Move>();
-				if (role == roles.get(0)) {
+				if (role.equals(roles.get(0))) {
 					moves.add(action);
 					moves.add(actions.get(i));
 				} else {
