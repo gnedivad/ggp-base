@@ -16,7 +16,7 @@ import org.ggp.base.util.statemachine.exceptions.TransitionDefinitionException;
 import org.ggp.base.util.statemachine.implementation.prover.ProverStateMachine;
 
 
-public class GoalProximityPlayer extends StateMachineGamer {
+public class WeightHeuristicPlayer extends StateMachineGamer {
 
 	@Override
 	public StateMachine getInitialStateMachine() {
@@ -28,6 +28,7 @@ public class GoalProximityPlayer extends StateMachineGamer {
 			throws TransitionDefinitionException, MoveDefinitionException,
 			GoalDefinitionException {
 		// Minimax gamer does no metagaming at the beginning of the match.
+		num_moves = 0;
 	}
 
 	private int time_buffer;
@@ -45,6 +46,7 @@ public class GoalProximityPlayer extends StateMachineGamer {
 		 * is to return one of these moves. The choice of which
 		 * Move to play is the goal of GGP.
 		 */
+		num_moves++;
 		Role role = getRole();
 		MachineState state = getCurrentState();
 		StateMachine stateMachine = getStateMachine();
@@ -88,6 +90,11 @@ public class GoalProximityPlayer extends StateMachineGamer {
 		// Single Player, just go straight to next maxScore
 		if ( roles.size() == 1 ) {
 			try {
+				// Normal mobility heuristic if no opponents.
+				if ( level >= limit || checkTimeout(timeout) ) {
+					return evalHeuristic(role,state);
+				}
+
 				List<Move> moves = new ArrayList<Move>();
 				moves.add(action);
 				MachineState newState = stateMachine.findNext(moves, state);
@@ -176,8 +183,44 @@ public class GoalProximityPlayer extends StateMachineGamer {
 		}
 	}
 
-	// For now, goal proximity?
+	private int num_moves;
+
+	// For now, mobility heuristic
 	private int evalHeuristic(Role role, MachineState state) throws GoalDefinitionException {
+		try {
+			int mobVal = mobilityHeuristic( role, state );
+			int golVal = goalHeuristic( role, state );
+
+			// Adjust weights based on how far we are through the game
+			StateMachine stateMachine = getStateMachine();
+			List<Move> feasibles = stateMachine.findActions(role);
+			double w_mob = ((double)(feasibles.size()) - (double)(num_moves)) / (double)(feasibles.size());
+			double w_gol = 1.0 - w_mob;
+			if (w_mob < 0.0) {
+				w_mob = 0.0;
+				w_gol = 1.0;
+			}
+
+			return (int)( w_mob * mobVal + w_gol * golVal );
+		}
+		catch (Exception e) {
+			throw new GoalDefinitionException(state,role);
+		}
+	}
+
+	private int mobilityHeuristic(Role role, MachineState state) throws GoalDefinitionException {
+		try {
+			StateMachine stateMachine = getStateMachine();
+			List<Move> actions = stateMachine.getLegalMoves(state, role);
+			List<Move> feasibles = stateMachine.findActions(role);
+			return ((actions.size() * 100) / feasibles.size() );
+		}
+		catch (Exception e) {
+			throw new GoalDefinitionException(state,role);
+		}
+	}
+
+	private int goalHeuristic(Role role, MachineState state) throws GoalDefinitionException {
 		try {
 			StateMachine stateMachine = getStateMachine();
 			return stateMachine.getGoal(state, role);
@@ -207,7 +250,7 @@ public class GoalProximityPlayer extends StateMachineGamer {
 
 	@Override
 	public String getName() {
-		return "Goal Proximity Player";
+		return "Weighted Heuristic Player";
 	}
 
 }

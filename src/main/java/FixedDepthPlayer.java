@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.List;
 
 import org.ggp.base.player.gamer.event.GamerSelectedMoveEvent;
@@ -29,6 +30,8 @@ public class FixedDepthPlayer extends StateMachineGamer {
 		// Minimax gamer does no metagaming at the beginning of the match.
 	}
 
+	private int time_buffer;
+
 	@Override
 	public Move stateMachineSelectMove(long timeout)
 			throws TransitionDefinitionException, MoveDefinitionException,
@@ -51,18 +54,24 @@ public class FixedDepthPlayer extends StateMachineGamer {
 		// Iterative deepening.
 		List<Move> actions = stateMachine.getLegalMoves(state, role);
 		Move action = actions.get(0);
-		while (timeout - curr_time > 7000) {
-			int score = 0;
+		int score = 0;
+		time_buffer = 3000;
+		while (timeout - curr_time > time_buffer) {
 			for (int i = 0; i < actions.size(); i++) {
-				int result = minScore(role, actions.get(i), state, 0, limit);
-				if (result >= score) {
+				int result = minScore(role, actions.get(i), state, 0, limit, timeout);
+				if (result > score) {
 					score = result;
 					action = actions.get(i);
+				}
+				if (score == 100) {
+					break;
 				}
 			}
 			limit++;
 			curr_time = System.currentTimeMillis();
 		}
+		System.out.println(score);
+		System.out.println(limit);
 
 		// We get the end time
 		// It is mandatory that stop<timeout
@@ -72,14 +81,17 @@ public class FixedDepthPlayer extends StateMachineGamer {
 		return action;
 	}
 
-	private int minScore(Role role, Move action, MachineState state, int level, int limit) {
+	private int minScore(Role role, Move action, MachineState state, int level, int limit, long timeout) {
 		StateMachine stateMachine = getStateMachine();
 		List<Role> roles = stateMachine.getRoles();
 
 		// Single Player, just go straight to next maxScore
 		if ( roles.size() == 1 ) {
 			try {
-				return maxScore(role, state, level+1, limit);
+				List<Move> moves = new ArrayList<Move>();
+				moves.add(action);
+				MachineState newState = stateMachine.findNext(moves, state);
+				return maxScore(role, newState, level+1, limit,timeout);
 			}
 			catch (Exception e) {
 			}
@@ -89,13 +101,24 @@ public class FixedDepthPlayer extends StateMachineGamer {
 			// Joint moves given our role makes given action
 			List<List<Move>> actions = stateMachine.getLegalJointMoves(state, role, action);
 			int score = 100;
-			// Number of joint moves
-			for (int i = 0; i < actions.size(); i++) {
-				List<Move> moves = actions.get(i);
+			// Don't increase level if just one move possible for opponents (my turn)
+			if (actions.size()==1) {
+				List<Move> moves = actions.get(0);
 				MachineState newState = stateMachine.findNext(moves, state);
-				int result = maxScore(role, newState,level+1,limit);
+				int result = maxScore(role,newState,level,limit,timeout);
 				if (result < score) {
 					score = result;
+				}
+			}
+			else {
+				// Number of joint moves
+				for (int i = 0; i < actions.size(); i++) {
+					List<Move> moves = actions.get(i);
+					MachineState newState = stateMachine.findNext(moves, state);
+					int result = maxScore(role, newState,level+1,limit,timeout);
+					if (result < score) {
+						score = result;
+					}
 				}
 			}
 
@@ -108,20 +131,22 @@ public class FixedDepthPlayer extends StateMachineGamer {
 		return 0;
 	}
 
-	private int maxScore(Role role, MachineState state, int level, int limit) throws GoalDefinitionException {
+	private Boolean checkTimeout( long timeout ) {
+		return (timeout - System.currentTimeMillis() < time_buffer);
+	}
+
+	private int maxScore(Role role, MachineState state, int level, int limit, long timeout) throws GoalDefinitionException {
 		try {
 			StateMachine stateMachine = getStateMachine();
 
 			if (stateMachine.findTerminalp(state)) {
 				return stateMachine.findReward(role, state);
 			}
-			if ( level >= limit ) {
-				return 0;
-			}
 			List<Move> actions = stateMachine.getLegalMoves(state, role);
 			int score = 0;
-			for (int i = 0; i < actions.size(); i++) {
-				int result = minScore(role, actions.get(i), state, level, limit);
+			// Only one move possible (opponents turn)
+			if (actions.size() == 1) {
+				int result = minScore(role, actions.get(0), state, level, limit, timeout);
 				if (result == 100) {
 					return 100;
 				}
@@ -129,10 +154,38 @@ public class FixedDepthPlayer extends StateMachineGamer {
 					score = result;
 				}
 			}
+			else {
+				// Only check heuristic if more than one move available
+				if ( level >= limit || checkTimeout(timeout) ) {
+					return evalHeuristic(role,state);
+				}
+				for (int i = 0; i < actions.size(); i++) {
+					int result = minScore(role, actions.get(i), state, level, limit, timeout);
+					if (result == 100) {
+						return 100;
+					}
+					if (result > score) {
+						score = result;
+					}
+				}
+			}
 			return score;
 		}
 		catch (Exception e) {
 			throw new GoalDefinitionException(state, role);
+		}
+	}
+
+	// For now, mobility heuristic
+	private int evalHeuristic(Role role, MachineState state) throws GoalDefinitionException {
+		try {
+			StateMachine stateMachine = getStateMachine();
+			List<Move> actions = stateMachine.getLegalMoves(state, role);
+			List<Move> feasibles = stateMachine.findActions(role);
+			return ((actions.size() * 100) / feasibles.size() );
+		}
+		catch (Exception e) {
+			throw new GoalDefinitionException(state,role);
 		}
 	}
 

@@ -1,4 +1,3 @@
-import java.util.ArrayList;
 import java.util.List;
 
 import org.ggp.base.player.gamer.event.GamerSelectedMoveEvent;
@@ -16,7 +15,7 @@ import org.ggp.base.util.statemachine.exceptions.TransitionDefinitionException;
 import org.ggp.base.util.statemachine.implementation.prover.ProverStateMachine;
 
 
-public class GoalProximityPlayer extends StateMachineGamer {
+public class FixedDepthTest extends StateMachineGamer {
 
 	@Override
 	public StateMachine getInitialStateMachine() {
@@ -29,8 +28,6 @@ public class GoalProximityPlayer extends StateMachineGamer {
 			GoalDefinitionException {
 		// Minimax gamer does no metagaming at the beginning of the match.
 	}
-
-	private int time_buffer;
 
 	@Override
 	public Move stateMachineSelectMove(long timeout)
@@ -49,29 +46,18 @@ public class GoalProximityPlayer extends StateMachineGamer {
 		MachineState state = getCurrentState();
 		StateMachine stateMachine = getStateMachine();
 
-		int limit = 0;
-		long curr_time = System.currentTimeMillis();
 		// Iterative deepening.
 		List<Move> actions = stateMachine.getLegalMoves(state, role);
 		Move action = actions.get(0);
 		int score = 0;
-		time_buffer = 3000;
-		while (timeout - curr_time > time_buffer) {
-			for (int i = 0; i < actions.size(); i++) {
-				int result = minScore(role, actions.get(i), state, 0, limit, timeout);
-				if (result > score) {
-					score = result;
-					action = actions.get(i);
-				}
-				if (score == 100) {
-					break;
-				}
+		for (int i = 0; i < actions.size(); i++) {
+			int result = minScore(role, actions.get(i), state, 0, timeout);
+			if (result >= score) {
+				score = result;
+				action = actions.get(i);
 			}
-			limit++;
-			curr_time = System.currentTimeMillis();
 		}
 		System.out.println(score);
-		System.out.println(limit);
 
 		// We get the end time
 		// It is mandatory that stop<timeout
@@ -81,17 +67,14 @@ public class GoalProximityPlayer extends StateMachineGamer {
 		return action;
 	}
 
-	private int minScore(Role role, Move action, MachineState state, int level, int limit, long timeout) {
+	private int minScore(Role role, Move action, MachineState state, int level, long timeout) {
 		StateMachine stateMachine = getStateMachine();
 		List<Role> roles = stateMachine.getRoles();
 
 		// Single Player, just go straight to next maxScore
 		if ( roles.size() == 1 ) {
 			try {
-				List<Move> moves = new ArrayList<Move>();
-				moves.add(action);
-				MachineState newState = stateMachine.findNext(moves, state);
-				return maxScore(role, newState, level+1, limit,timeout);
+				return maxScore(role, state, level+1, timeout);
 			}
 			catch (Exception e) {
 			}
@@ -105,7 +88,7 @@ public class GoalProximityPlayer extends StateMachineGamer {
 			if (actions.size()==1) {
 				List<Move> moves = actions.get(0);
 				MachineState newState = stateMachine.findNext(moves, state);
-				int result = maxScore(role,newState,level,limit,timeout);
+				int result = maxScore(role,newState,level,timeout);
 				if (result < score) {
 					score = result;
 				}
@@ -115,7 +98,7 @@ public class GoalProximityPlayer extends StateMachineGamer {
 				for (int i = 0; i < actions.size(); i++) {
 					List<Move> moves = actions.get(i);
 					MachineState newState = stateMachine.findNext(moves, state);
-					int result = maxScore(role, newState,level+1,limit,timeout);
+					int result = maxScore(role, newState,level+1,timeout);
 					if (result < score) {
 						score = result;
 					}
@@ -132,21 +115,23 @@ public class GoalProximityPlayer extends StateMachineGamer {
 	}
 
 	private Boolean checkTimeout( long timeout ) {
-		return (timeout - System.currentTimeMillis() < time_buffer);
+		return (timeout - System.currentTimeMillis() < 3000);
 	}
-
-	private int maxScore(Role role, MachineState state, int level, int limit, long timeout) throws GoalDefinitionException {
+	private int maxScore(Role role, MachineState state, int level, long timeout) throws GoalDefinitionException {
 		try {
 			StateMachine stateMachine = getStateMachine();
 
 			if (stateMachine.findTerminalp(state)) {
 				return stateMachine.findReward(role, state);
 			}
+			if ( checkTimeout(timeout) ) {
+				return 0;
+			}
 			List<Move> actions = stateMachine.getLegalMoves(state, role);
 			int score = 0;
 			// Only one move possible (opponents turn)
 			if (actions.size() == 1) {
-				int result = minScore(role, actions.get(0), state, level, limit, timeout);
+				int result = minScore(role, actions.get(0), state, level, timeout);
 				if (result == 100) {
 					return 100;
 				}
@@ -155,12 +140,8 @@ public class GoalProximityPlayer extends StateMachineGamer {
 				}
 			}
 			else {
-				// Only check heuristic if more than one move available
-				if ( level >= limit || checkTimeout(timeout) ) {
-					return evalHeuristic(role,state);
-				}
 				for (int i = 0; i < actions.size(); i++) {
-					int result = minScore(role, actions.get(i), state, level, limit, timeout);
+					int result = minScore(role, actions.get(i), state, level, timeout);
 					if (result == 100) {
 						return 100;
 					}
@@ -173,17 +154,6 @@ public class GoalProximityPlayer extends StateMachineGamer {
 		}
 		catch (Exception e) {
 			throw new GoalDefinitionException(state, role);
-		}
-	}
-
-	// For now, goal proximity?
-	private int evalHeuristic(Role role, MachineState state) throws GoalDefinitionException {
-		try {
-			StateMachine stateMachine = getStateMachine();
-			return stateMachine.getGoal(state, role);
-		}
-		catch (Exception e) {
-			throw new GoalDefinitionException(state,role);
 		}
 	}
 
@@ -207,7 +177,7 @@ public class GoalProximityPlayer extends StateMachineGamer {
 
 	@Override
 	public String getName() {
-		return "Goal Proximity Player";
+		return "AAAA";
 	}
 
 }
