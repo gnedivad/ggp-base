@@ -157,7 +157,7 @@ public class FixedDepthPlayer extends StateMachineGamer {
 			else {
 				// Only check heuristic if more than one move available
 				if ( level >= limit || checkTimeout(timeout) ) {
-					return evalHeuristic(role,state);
+					return 0;
 				}
 				for (int i = 0; i < actions.size(); i++) {
 					int result = minScore(role, actions.get(i), state, level, limit, timeout);
@@ -173,19 +173,6 @@ public class FixedDepthPlayer extends StateMachineGamer {
 		}
 		catch (Exception e) {
 			throw new GoalDefinitionException(state, role);
-		}
-	}
-
-	// For now, mobility heuristic
-	private int evalHeuristic(Role role, MachineState state) throws GoalDefinitionException {
-		try {
-			StateMachine stateMachine = getStateMachine();
-			List<Move> actions = stateMachine.getLegalMoves(state, role);
-			List<Move> feasibles = stateMachine.findActions(role);
-			return ((actions.size() * 100) / feasibles.size() );
-		}
-		catch (Exception e) {
-			throw new GoalDefinitionException(state,role);
 		}
 	}
 
