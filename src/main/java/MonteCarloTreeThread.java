@@ -35,8 +35,41 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 		// Initializes instance variables
 		numMoves = 0;
 		timeBuffer = 3000;
-		cweight = 35;
+		cweight = 15;
 		depth_max = 20;
+
+		// Find cweight
+		StateMachine stateMachine = getStateMachine();
+		MachineState initState = stateMachine.getInitialState();
+		int turn_steps = 0;
+		int step_count = 0;
+		int rewards = 0;
+		int reward_count = 0;
+
+		MachineState state = initState;
+
+		while ( !checkTimeout(timeout) ) {
+			if (stateMachine.findTerminalp(state)) {
+				reward_count++;
+				rewards = rewards + stateMachine.findReward(getRole(), state);
+				state = initState;
+			}
+			else {
+				step_count++;
+				List<Move> ourMoves = stateMachine.getLegalMoves(state, getRole());
+				for (int i=1; i<ourMoves.size(); i++) {
+					turn_steps = turn_steps + (stateMachine.getLegalJointMoves(state, getRole(), ourMoves.get(i))).size();
+				}
+				List<Move> simulatedMoves = stateMachine.getRandomJointMove(state);
+				state = stateMachine.getNextState(state, simulatedMoves);
+			}
+		}
+		cweight = 0.8*(rewards / reward_count) / Math.sqrt(Math.log(turn_steps / step_count));
+		System.out.println(cweight);
+		System.out.println(rewards);
+		System.out.println(reward_count);
+		System.out.println(turn_steps);
+		System.out.println(step_count);
 	}
 
 	private MCTSNode select(MCTSNode node, int depth) {
@@ -220,7 +253,7 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 	}
 
 	private int simulate(MCTSNode node, long timeout) throws GoalDefinitionException {
-		return (int) monteCarlo(node.getRole(), node.getState(), 4, timeout);
+		return (int) monteCarlo(node.getRole(), node.getState(), 40, timeout);
 	}
 
 	private int depthCharge(Role role, MachineState state, long timeout) throws GoalDefinitionException {
@@ -334,24 +367,37 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 
 	private double cweight;
 
-	private double monteCarlo(Role role, MachineState state, int probeCount, long timeout) throws GoalDefinitionException {
-		double total = 0.0;
-		int runningCount = 0;
+	private double monteCarlo(Role role, MachineState state, int count, long timeout) throws GoalDefinitionException {
 		try {
+			StateMachine stateMachine = getStateMachine();
 
-			for (int i = 0; i < probeCount; i++) {
+			double total = 0;
+			int runningCount = 0;
+			List<Thread> runthreads = new ArrayList<Thread>();
+			List<DepthChargeThread> dcthreads = new ArrayList<DepthChargeThread>();
+			for (int i = 0; i < count; i++) {
 				// depthCharge returns 0 after timeout exceeded, so we shouldn't count it to the runningCount
-				total = total + depthCharge(role, state, timeout);
-				if (checkTimeout(timeout)) {
-					break;
-				}
-				runningCount++;
+				DepthChargeThread dct = new DepthChargeThread(role, stateMachine, state, timeout, timeBuffer);
+				Thread t = new Thread( dct );
+				t.start();
+				runthreads.add(t);
+				dcthreads.add(dct);
+			}
 
+			for (int i=0; i<count; i++) {
+				runthreads.get(i).join();
+			}
+
+			for (int i=0; i<count; i++) {
+				total = total + dcthreads.get(i).getValue();
+				runningCount++;
+			}
+			if (checkTimeout(timeout)) {
+				return 0;
 			}
 			return total / runningCount;
 		}
 		catch (Exception e) {
-			System.out.println("Fucking up...");
 			throw new GoalDefinitionException(state, role);
 		}
 	}
