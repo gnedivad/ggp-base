@@ -34,7 +34,7 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 			GoalDefinitionException {
 		// Initializes instance variables
 		numMoves = 0;
-		timeBuffer = 3000;
+		timeBuffer = 1000;
 		cweight = 15;
 		depth_max = 20;
 
@@ -78,15 +78,15 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 			System.out.println("MAX DEPTH");
 			return null;
 		}
-		if (node.getNumVisits() == 0) {
+		if (node.getNumVisits() == 0 || node.getNumChildren() == 0) {
 			return node;
 		}
-		for (int i = 0; i < node.getNumChildren(); i++) {
-			MCTSNode child = node.getChild(i);
-			if (child.getNumVisits() == 0) {
-				return child;
-			}
-		}
+		//for (int i = 0; i < node.getNumChildren(); i++) {
+		//	MCTSNode child = node.getChild(i);
+		//	if (child.getNumVisits() == 0) {
+		//		return child;
+		//	}
+		//}
 		MCTSNode result = node;
 		int[] scores = new int[node.getNumChildren()];
 		int[] indexes = new int[node.getNumChildren()];
@@ -193,23 +193,27 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 		Role role = node.getRole();
 		int new_children = 0;
 		try {
+			if (stateMachine.isTerminal(state)) {
+				return 0;
+			}
+
 			List<Move> ourAvailableActions = stateMachine.getLegalMoves(state, role);
 			for (int i = 0; i < ourAvailableActions.size(); i++) {
 				Move ourTakenAction = ourAvailableActions.get(i);
 
 				// minNodes (blue) are the exact same as maxNodes (red) except
 				// their action is non-null (i.e. role and state are the same)
-				MCTSNode child = new MCTSNode(node, role, state, ourTakenAction);
-				node.addChild(child);
 
 				if (isSinglePlayer) {
 					List<Move> ourTakenActions = new ArrayList<Move>();
 					ourTakenActions.add(ourTakenAction);
 					MachineState newState = stateMachine.findNext(ourTakenActions, state);
-					MCTSNode grandchild = new MCTSNode(child, role, newState, ourTakenAction);
-					child.addChild(grandchild);
+					MCTSNode grandchild = new MCTSNode(node, role, newState, null);
+					node.addChild(grandchild);
 					new_children++;
 				} else {
+					MCTSNode child = new MCTSNode(node, role, state, ourTakenAction);
+					node.addChild(child);
 					List<List<Move>> theirAvailableActions = stateMachine.getLegalJointMoves(state, role, ourTakenAction);
 					for (int j = 0; j < theirAvailableActions.size(); j++) {
 						List<Move> theirTakenActions = theirAvailableActions.get(j);
@@ -253,6 +257,10 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 	}
 
 	private int simulate(MCTSNode node, long timeout) throws GoalDefinitionException {
+		StateMachine sm = getStateMachine();
+		if (sm.isTerminal(node.getState())) {
+			return sm.findReward(getRole(),node.getState());
+		}
 		return (int) monteCarlo(node.getRole(), node.getState(), 40, timeout);
 	}
 
@@ -317,15 +325,37 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 
 			if (checkTimeout(timeout)) break;
 			int numChildren = expand(selectedNode, isSinglePlayer);
+			int score = 0;
+
+			for (int i=0; i<selectedNode.getNumChildren(); i++) {
+				MCTSNode newNode = selectedNode.getChild(i);
+
+				if (isSinglePlayer) {
+
+					if (checkTimeout(timeout)) break;
+					score = simulate(newNode, timeout);
+
+					if (checkTimeout(timeout)) break;
+					backpropagate(newNode, score);
+				}
+				else {
+					int numGC = newNode.getNumChildren();
+					for (int j=0; j<numGC; j++) {
+						MCTSNode gcNode = newNode.getChild(j);
+
+						if (checkTimeout(timeout)) break;
+						score = simulate(gcNode, timeout);
+
+						if (checkTimeout(timeout)) break;
+						backpropagate(gcNode, score);
+				}
+				}
+			}
 
 			if (checkTimeout(timeout)) break;
-			int score = simulate(selectedNode, timeout);
-
-			if (checkTimeout(timeout)) break;
-			backpropagate(selectedNode, score);
 
 			counter += 1;
-			if (counter % 10 == 0) {
+			if (counter % 5 == 0) {
 				System.out.println("num new children: " + numChildren);
 				System.out.println("num visits: " + selectedNode.getNumVisits());
 				System.out.println(counter + " " + score + " " + root.getUtility());

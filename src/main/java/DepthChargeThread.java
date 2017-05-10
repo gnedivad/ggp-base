@@ -12,7 +12,7 @@ public class DepthChargeThread implements Runnable {
 		thisRole = role;
 		thisMachine = gameMachine;
 		thisState = currState;
-		value = -10;
+		value = 0;
 		thisTimeout = timeout;
 		thisBuffer = timeBuffer;
 

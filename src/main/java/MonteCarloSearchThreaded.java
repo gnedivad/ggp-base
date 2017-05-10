@@ -108,7 +108,7 @@ public class MonteCarloSearchThreaded extends StateMachineGamer {
 			try {
 				// Normal mobility heuristic if no opponents.
 				if ( level >= limit ) {
-					return (int) monteCarlo(role, state, 4, timeout);
+					return (int) monteCarlo(role, state, 40, timeout);
 				}
 
 				if ( checkTimeout(timeout) ) {
@@ -167,7 +167,7 @@ public class MonteCarloSearchThreaded extends StateMachineGamer {
 				return stateMachine.findReward(role, state);
 			}
 			if (level >= limit) {
-				return (int) monteCarlo(role, state, 4, timeout);
+				return (int) monteCarlo(role, state, 40, timeout);
 			}
 
 			List<Move> actions = stateMachine.getLegalMoves(state, role);
