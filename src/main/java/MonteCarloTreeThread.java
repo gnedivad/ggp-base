@@ -19,6 +19,7 @@ import org.ggp.base.util.statemachine.implementation.prover.ProverStateMachine;
 
 public class MonteCarloTreeThread extends StateMachineGamer {
 
+	private int num_depth_charges;
 	private int depth_max;
 	private int timeBuffer;
 	private int numMoves;
@@ -37,6 +38,7 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 		timeBuffer = 1000;
 		cweight = 15;
 		depth_max = 20;
+		num_depth_charges = 0;
 
 		// Find cweight
 		StateMachine stateMachine = getStateMachine();
@@ -261,7 +263,8 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 		if (sm.isTerminal(node.getState())) {
 			return sm.findReward(getRole(),node.getState());
 		}
-		return (int) monteCarlo(node.getRole(), node.getState(), 40, timeout);
+		num_depth_charges = num_depth_charges + 4;
+		return (int) monteCarlo(node.getRole(), node.getState(), 4, timeout);
 	}
 
 	private int depthCharge(Role role, MachineState state, long timeout) throws GoalDefinitionException {
@@ -386,6 +389,7 @@ public class MonteCarloTreeThread extends StateMachineGamer {
 		}
 
 		long stop = System.currentTimeMillis();
+		System.out.println(num_depth_charges);
 
 		notifyObservers(new GamerSelectedMoveEvent(actions, bestAction, stop - start));
 		return bestAction;
