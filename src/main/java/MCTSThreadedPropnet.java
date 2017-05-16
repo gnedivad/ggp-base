@@ -312,7 +312,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		long start = System.currentTimeMillis();
 
 		MachineState state = getCurrentState();
-		StateMachine stateMachine = getStateMachine();
+		//StateMachine stateMachine = getStateMachine();
 		//List<Role> roles = stateMachine.getRoles();
 		List<Role> roles = propnetStateMachine.getRoles();
 		boolean isSinglePlayer = roles.size() == 1;
@@ -409,13 +409,13 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 	private double monteCarlo(Role role, MachineState state, int count, long timeout) throws GoalDefinitionException {
 		try {
-			StateMachine stateMachine = getStateMachine();
+			//StateMachine stateMachine = getStateMachine();
 
 			double total = 0;
 			int runningCount = 0;
 			List<Thread> runthreads = new ArrayList<Thread>();
 			List<DepthChargeThread> dcthreads = new ArrayList<DepthChargeThread>();
-			count = 20;
+
 			for (int i = 0; i < count; i++) {
 				// depthCharge returns 0 after timeout exceeded, so we shouldn't count it to the runningCount
 				DepthChargeThread dct = new DepthChargeThread(role, propnetStateMachine, state, timeout, timeBuffer);
