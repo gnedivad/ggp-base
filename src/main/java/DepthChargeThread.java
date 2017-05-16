@@ -10,7 +10,7 @@ public class DepthChargeThread implements Runnable {
 
 	public DepthChargeThread(Role role, StateMachine gameMachine, MachineState currState, long timeout, long timeBuffer) {
 		thisRole = role;
-		thisMachine = gameMachine;
+		thisMachine = gameMachine; //new PropNetImplementation((PropNetImplementation) gameMachine);
 		thisState = currState;
 		value = 0;
 		thisTimeout = timeout;
@@ -41,12 +41,12 @@ public class DepthChargeThread implements Runnable {
 
 			if ( thisMachine.findTerminalp(state)) {
 				value = thisMachine.findReward(thisRole, state);
-				//int v2 = checkMachine.findReward(thisRole,state);
-				//if( value != v2 ) {
-				//	System.out.print("MisMatch: ");
-				//	System.out.print("prop: " + value);
-				//	System.out.println("sm: " + v2);
-				//}
+				int v2 = checkMachine.findReward(thisRole,state);
+				if( value != v2 ) {
+					System.out.print("MisMatch: ");
+					System.out.print("prop: " + value);
+					System.out.println("sm: " + v2);
+				}
 			}
 		}
 		catch (Exception e) {
