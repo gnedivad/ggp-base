@@ -24,13 +24,29 @@ public class DepthChargeThread implements Runnable {
 			MachineState state = thisState;
 			while (!thisMachine.findTerminalp(state)) {
 				List<Move> simulatedMoves = thisMachine.getRandomJointMove(state);
+				//MachineState smState = checkMachine.getNextState(state, simulatedMoves);
 				state = thisMachine.getNextState(state, simulatedMoves);
+
+				//state = smState;
+
+				//if (!smState.equals(state)) {
+				//	System.out.println("MISMATCH: ");
+				//	System.out.println(smState);
+				//	System.out.println(state);
+				//}
 				if ( checkTimeout() ) {
 					break;
 				}
 			}
+
 			if ( thisMachine.findTerminalp(state)) {
 				value = thisMachine.findReward(thisRole, state);
+				//int v2 = checkMachine.findReward(thisRole,state);
+				//if( value != v2 ) {
+				//	System.out.print("MisMatch: ");
+				//	System.out.print("prop: " + value);
+				//	System.out.println("sm: " + v2);
+				//}
 			}
 		}
 		catch (Exception e) {

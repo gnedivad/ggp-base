@@ -1,6 +1,5 @@
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 import org.ggp.base.player.gamer.event.GamerSelectedMoveEvent;
 import org.ggp.base.player.gamer.exception.GamePreviewException;
@@ -61,7 +60,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 		MachineState state = initState;
 
-		boolean propNetEnsure = true;
+		//boolean propNetEnsure = true;
 		while ( !checkTimeout(timeout) ) {
 			if (propnetStateMachine.findTerminalp(state)) {
 				reward_count++;
@@ -205,13 +204,14 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	 * I get something functional.
 	 */
 	private int expand(MCTSNode node, boolean isSinglePlayer) throws GoalDefinitionException {
-		StateMachine stateMachine = getStateMachine();
+		//StateMachine stateMachine = getStateMachine();
 
 		MachineState state = node.getState();
 		Role role = node.getRole();
 		int new_children = 0;
 		try {
-			if (stateMachine.isTerminal(state)) {
+			//if (stateMachine.isTerminal(state)) {
+			if (propnetStateMachine.isTerminal(state)) {
 				return 0;
 			}
 
@@ -281,38 +281,20 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	}
 
 	private int simulate(MCTSNode node, long timeout) throws GoalDefinitionException {
-		StateMachine sm = getStateMachine();
-		if (sm.isTerminal(node.getState())) {
-			return sm.findReward(getRole(),node.getState());
+		//StateMachine sm = getStateMachine();
+		//if (sm.isTerminal(node.getState())) {
+		//	System.out.print( "CHECK: " + node.getState() );
+		//	System.out.print( ", " + propnetStateMachine.isTerminal(node.getState()) );
+		//	System.out.print( ", " + sm.findReward(getRole(), node.getState()) );
+		//	System.out.println( ", " + propnetStateMachine.findReward(getRole(), node.getState()) );
+		//}
+		if (propnetStateMachine.isTerminal(node.getState())) {
+			//return sm.findReward(getRole(),node.getState()
+			return propnetStateMachine.findReward(getRole(), node.getState());
 		}
-		num_depth_charges = num_depth_charges + 4;
-		return (int) monteCarlo(node.getRole(), node.getState(), 4, timeout);
-	}
-
-	private int depthCharge(Role role, MachineState state, long timeout) throws GoalDefinitionException {
-		try {
-			StateMachine stateMachine = getStateMachine();
-
-			if (stateMachine.findTerminalp(state)) {
-				return stateMachine.findReward(role, state);
-			}
-			if (checkTimeout(timeout)) {
-				return 0;
-			}
-
-			List<Move> simulatedMoves = new ArrayList<Move>();
-			List<Role> roles = stateMachine.getRoles();
-			Random rand = new Random();
-			for (int i = 0; i < roles.size(); i++) {
-				List<Move> options = stateMachine.getLegalMoves(state, roles.get(i));
-				simulatedMoves.add(options.get(rand.nextInt(options.size())));
-			}
-			MachineState newState = stateMachine.getNextState(state, simulatedMoves);
-			return depthCharge(role, newState, timeout);
-		}
-		catch (Exception e) {
-			throw new GoalDefinitionException(state, role);
-		}
+		int pd_count = 100;
+		num_depth_charges = num_depth_charges + pd_count;
+		return (int) monteCarlo(node.getRole(), node.getState(), pd_count, timeout);
 	}
 
 	private void backpropagate(MCTSNode node, int score) {
@@ -331,11 +313,13 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 		MachineState state = getCurrentState();
 		StateMachine stateMachine = getStateMachine();
-		List<Role> roles = stateMachine.getRoles();
+		//List<Role> roles = stateMachine.getRoles();
+		List<Role> roles = propnetStateMachine.getRoles();
 		boolean isSinglePlayer = roles.size() == 1;
 
 		Role role = getRole();
-		List<Move> actions = stateMachine.getLegalMoves(state, role);
+		//List<Move> actions = stateMachine.getLegalMoves(state, role);
+		List<Move> actions = propnetStateMachine.getLegalMoves(state, role);
 
 		if (actions.size() == 1) {
 			return actions.get(0);
@@ -344,7 +328,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		MCTSNode root = new MCTSNode(null, role, state, null);
 		int counter = 0;
 
-		while (counter < 200) {
+		while (counter < 2000) {
 			if (checkTimeout(timeout)) break;
 			MCTSNode selectedNode = select(root, 0);
 
@@ -431,23 +415,22 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 			int runningCount = 0;
 			List<Thread> runthreads = new ArrayList<Thread>();
 			List<DepthChargeThread> dcthreads = new ArrayList<DepthChargeThread>();
+			count = 20;
 			for (int i = 0; i < count; i++) {
 				// depthCharge returns 0 after timeout exceeded, so we shouldn't count it to the runningCount
-				DepthChargeThread dct = new DepthChargeThread(role, stateMachine, state, timeout, timeBuffer);
-				Thread t = new Thread( dct );
-				t.start();
-				runthreads.add(t);
+				DepthChargeThread dct = new DepthChargeThread(role, propnetStateMachine, state, timeout, timeBuffer);
+				//Thread t = new Thread( dct );
+				//t.start();
+				//runthreads.add(t);
 				dcthreads.add(dct);
-			}
-
-			for (int i=0; i<count; i++) {
-				runthreads.get(i).join();
+				dct.run();
 			}
 
 			for (int i=0; i<count; i++) {
 				total = total + dcthreads.get(i).getValue();
 				runningCount++;
 			}
+
 			if (checkTimeout(timeout)) {
 				return 0;
 			}

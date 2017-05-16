@@ -62,7 +62,7 @@ public class PropNetImplementation extends StateMachine {
      * of the terminal proposition for the state.
      */
     @Override
-    public boolean isTerminal(MachineState state) {
+    public synchronized boolean isTerminal(MachineState state) {
     	// Set base propositions based on state
     	setBaseProps(state);
 
@@ -82,7 +82,7 @@ public class PropNetImplementation extends StateMachine {
      * GoalDefinitionException because the goal is ill-defined.
      */
     @Override
-    public int getGoal(MachineState state, Role role)
+    public synchronized int getGoal(MachineState state, Role role)
             throws GoalDefinitionException {
     	// Set base propositions based on state
     	setBaseProps(state);
@@ -153,7 +153,7 @@ public class PropNetImplementation extends StateMachine {
      * Computes the legal moves for role in state.
      */
     @Override
-    public List<Move> getLegalMoves(MachineState state, Role role)
+    public synchronized List<Move> getLegalMoves(MachineState state, Role role)
             throws MoveDefinitionException {
     	try {
     		// Set base propositions based on state
@@ -201,7 +201,7 @@ public class PropNetImplementation extends StateMachine {
      * Computes the next state given state and the list of moves.
      */
     @Override
-    public MachineState getNextState(MachineState state, List<Move> moves)
+    public synchronized MachineState getNextState(MachineState state, List<Move> moves)
             throws TransitionDefinitionException {
     	try {
     		// Set base state
@@ -238,7 +238,7 @@ public class PropNetImplementation extends StateMachine {
      * of joint moves given by {@link #getLegalJointMoves(MachineState)}.
      */
 	@Override
-	public List<List<Move>> getLegalJointMoves(MachineState state, Role role, Move move) throws MoveDefinitionException
+	public synchronized List<List<Move>> getLegalJointMoves(MachineState state, Role role, Move move) throws MoveDefinitionException
     {
         List<List<Move>> legals = new ArrayList<List<Move>>();
         for (Role r : getRoles()) {
