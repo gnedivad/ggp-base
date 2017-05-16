@@ -418,7 +418,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 			count = 20;
 			for (int i = 0; i < count; i++) {
 				// depthCharge returns 0 after timeout exceeded, so we shouldn't count it to the runningCount
-				DepthChargeThread dct = new DepthChargeThread(role, stateMachine, propnetStateMachine, state, timeout, timeBuffer);
+				DepthChargeThread dct = new DepthChargeThread(role, propnetStateMachine, state, timeout, timeBuffer);
 				Thread t = new Thread( dct );
 				t.start();
 				runthreads.add(t);
