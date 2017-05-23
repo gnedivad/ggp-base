@@ -126,6 +126,20 @@ public final class PropNet
 		this.legalInputMap = makeLegalInputMap();
 	}
 
+	public PropNet(PropNet other)
+	{
+	    this.roles = other.roles;
+		this.components = other.components;
+		this.propositions = recordPropositions();
+		this.basePropositions = recordBasePropositions();
+		this.inputPropositions = recordInputPropositions();
+		this.legalPropositions = recordLegalPropositions();
+		this.goalPropositions = recordGoalPropositions();
+		this.initProposition = recordInitProposition();
+		this.terminalProposition = recordTerminalProposition();
+		this.legalInputMap = makeLegalInputMap();
+	}
+
 	public List<Role> getRoles()
 	{
 	    return roles;

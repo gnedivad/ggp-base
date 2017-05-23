@@ -13,6 +13,7 @@ public class MCTSNode {
 	private Role role;
 	private MachineState state;
 	private Move action; 	/* Will be null for our player, non-null for their player */
+	private boolean terminal;
 
 	public MCTSNode(MCTSNode p, Role r, MachineState ms, Move a) {
 		parent = p;
@@ -22,6 +23,7 @@ public class MCTSNode {
 		role = r;
 		children = new ArrayList<MCTSNode>();
 		action = a;
+		terminal = false;
 	}
 
 	public int getNumVisits() {
@@ -74,5 +76,13 @@ public class MCTSNode {
 
 	public Move getAction() {
 		return action;
+	}
+
+	public void setTerminal(boolean term) {
+		terminal = term;
+	}
+
+	public boolean getTerminal() {
+		return terminal;
 	}
 }

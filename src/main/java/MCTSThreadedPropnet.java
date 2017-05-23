@@ -22,7 +22,9 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	private int depth_max;
 	private int timeBuffer;
 	private int numMoves;
+	private int pd_count;
 	private PropNetImplementation propnetStateMachine;
+	private List<PropNetImplementation> threadNets;
 
 	@Override
 	public StateMachine getInitialStateMachine() {
@@ -37,15 +39,26 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		numMoves = 0;
 		timeBuffer = 1000;
 		cweight = 15;
-		depth_max = 20;
+		depth_max = 100;
 		num_depth_charges = 0;
+		pd_count = 20;
 
 		// Create a propnet
 		propnetStateMachine = new PropNetImplementation();
 		propnetStateMachine.initialize(getMatch().getGame().getRules());
+		System.out.println("PROPNET SIZE: " + propnetStateMachine.getNumComponents());
 
 		//propnetStateMachine.renderToFile("aaa");
 		MachineState initState = propnetStateMachine.getInitialState();
+
+		// Create thread propnets - temporary fix
+		threadNets = new ArrayList<PropNetImplementation>();
+		for (int i=0; i<pd_count; i++) {
+			PropNetImplementation pM = new PropNetImplementation();
+			pM.initialize(getMatch().getGame().getRules());
+			threadNets.add(pM);
+		}
+
 
 		//System.out.println(initStateProp);
 
@@ -53,10 +66,10 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		//StateMachine stateMachine = getStateMachine();
 		//MachineState initState = stateMachine.getInitialState();
 		//System.out.println(initState);
-		int turn_steps = 0;
-		int step_count = 0;
-		int rewards = 0;
-		int reward_count = 0;
+		double turn_steps = 0;
+		double step_count = 0;
+		double rewards = 0;
+		double reward_count = 0;
 
 		MachineState state = initState;
 
@@ -72,12 +85,22 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 				step_count++;
 				//List<Move> ourMoves = stateMachine.getLegalMoves(state, getRole());
 				List<Move> ourMoves = propnetStateMachine.getLegalMoves(state, getRole());
-				for (int i=1; i<ourMoves.size(); i++) {
-					turn_steps = turn_steps + (propnetStateMachine.getLegalJointMoves(state, getRole(), ourMoves.get(i))).size();
+
+				if (ourMoves.isEmpty()) {
+					reward_count++;
+					rewards = rewards + propnetStateMachine.findReward(getRole(), state);
+
+					state = initState;
 				}
-				List<Move> simulatedMoves = propnetStateMachine.getRandomJointMove(state);
-				state = propnetStateMachine.getNextState(state,simulatedMoves);;
-				//propNetEnsure = propNetEnsure & propnetStateMachine.checkStateFunctionality(state);
+				else {
+
+					for (int i=1; i<ourMoves.size(); i++) {
+						turn_steps = turn_steps + (propnetStateMachine.getLegalJointMoves(state, getRole(), ourMoves.get(i))).size();
+					}
+					List<Move> simulatedMoves = propnetStateMachine.getRandomJointMove(state);
+					state = propnetStateMachine.getNextState(state,simulatedMoves);;
+					//propNetEnsure = propNetEnsure & propnetStateMachine.checkStateFunctionality(state);
+				}
 			}
 		}
 		//System.out.println("PROPNET WORKING: " + propNetEnsure);
@@ -111,7 +134,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 			MCTSNode child = node.getChild(i);
 			int newScore = 0;
 			// Minnodes have no action taken
-			if ( node.getAction() == null ) {
+			if ( node.getAction() == null && propnetStateMachine.getRoles().size() > 1 ) {
 				newScore = selectfn(child, 1);
 			}
 			else {
@@ -230,7 +253,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 					ourTakenActions.add(ourTakenAction);
 					//MachineState newState = stateMachine.findNext(ourTakenActions, state);
 					MachineState newState = propnetStateMachine.findNext(ourTakenActions, state);
-					MCTSNode grandchild = new MCTSNode(node, role, newState, null);
+					MCTSNode grandchild = new MCTSNode(node, role, newState, ourTakenAction);
 					node.addChild(grandchild);
 					new_children++;
 				} else {
@@ -292,7 +315,6 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 			//return sm.findReward(getRole(),node.getState()
 			return propnetStateMachine.findReward(getRole(), node.getState());
 		}
-		int pd_count = 100;
 		num_depth_charges = num_depth_charges + pd_count;
 		return (int) monteCarlo(node.getRole(), node.getState(), pd_count, timeout);
 	}
@@ -315,7 +337,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		//StateMachine stateMachine = getStateMachine();
 		//List<Role> roles = stateMachine.getRoles();
 		List<Role> roles = propnetStateMachine.getRoles();
-		boolean isSinglePlayer = roles.size() == 1;
+		boolean isSinglePlayer = ( roles.size() == 1 );
 
 		Role role = getRole();
 		//List<Move> actions = stateMachine.getLegalMoves(state, role);
@@ -418,7 +440,9 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 			for (int i = 0; i < count; i++) {
 				// depthCharge returns 0 after timeout exceeded, so we shouldn't count it to the runningCount
-				DepthChargeThread dct = new DepthChargeThread(role, propnetStateMachine, state, timeout, timeBuffer);
+				//PropNetImplementation psm = new PropNetImplementation( propnetStateMachine );
+				//PropNetImplementation psm = (PropNetImplementation) propnetStateMachine.clone();
+				DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(i), state, timeout, timeBuffer);
 				Thread t = new Thread( dct );
 				t.start();
 				runthreads.add(t);
