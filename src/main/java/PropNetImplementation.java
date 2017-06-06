@@ -1,4 +1,6 @@
 import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -33,19 +35,31 @@ public class PropNetImplementation extends StateMachine {
     /** The player roles */
     private List<Role> roles;
 
-    /** List of base proposition booleans **/
-    /** List of input proposition booleans **/
+    /** Bitset determines which ordering propositions need to be updated */
+    private BitSet updateOrder;
+
+    /** Map from base sentences to affected ordering propositions */
+    private Map<GdlSentence, BitSet> baseBitMap;
+
+    /** Map from input sentences to affected ordering propositions */
+    private Map<GdlSentence, BitSet> inputBitMap;
 
     public PropNetImplementation() {
     	this.propNet = null;
     	this.ordering = null;
     	this.roles = null;
+    	this.updateOrder = null;
+    	this.baseBitMap = null;
+    	this.inputBitMap = null;
     }
 
     public PropNetImplementation( PropNetImplementation other ) {
     	this.propNet = new PropNet( other.propNet );
     	this.ordering = other.ordering;
     	this.roles = other.roles;
+    	this.updateOrder = other.updateOrder;
+    	this.baseBitMap = other.baseBitMap;
+    	this.inputBitMap = other.inputBitMap;
     }
 
     /**
@@ -59,6 +73,9 @@ public class PropNetImplementation extends StateMachine {
             propNet = OptimizingPropNetFactory.create(description);
             roles = propNet.getRoles();
             ordering = getOrdering();
+            getBaseBitMap();
+            getInputBitMap();
+            updateOrder = new BitSet(ordering.size());
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -81,9 +98,6 @@ public class PropNetImplementation extends StateMachine {
     	// Set base propositions based on state
     	setBaseProps(state);
 
-    	// propagate
-    	propagatePropNet();
-
     	// Check terminal condition
     	return this.isTerminal();
     }
@@ -93,6 +107,9 @@ public class PropNetImplementation extends StateMachine {
      * Does not require reset.
      */
     public boolean isTerminal() {
+    	// propagate
+    	propagatePropNet();
+
     	Proposition termProp = propNet.getTerminalProposition();
     	return termProp.getValue();
     }
@@ -273,11 +290,28 @@ public class PropNetImplementation extends StateMachine {
     		// Set input propositions
 	    	Map<GdlSentence, Proposition> gmapp = propNet.getInputPropositions();
 
+	    	// Only update input propositions that need updating
+	    	List<GdlSentence> movesGdl = toDoes(moves);
+	    	for (GdlSentence g : gmapp.keySet()) {
+    			Proposition p = gmapp.get(g);
+	    		if (movesGdl.contains(g)) {
+	    			if ( !p.getValue() ) {
+	    				p.setValue(true);
+	    				updateOrder.or(inputBitMap.get(g));
+	    			}
+	    		}
+	    		else {
+	    			if ( p.getValue() ) {
+	    				p.setValue(false);
+	    				updateOrder.or(inputBitMap.get(g));
+	    			}
+	    		}
+	    	}
+
 	    	for (Proposition p : gmapp.values()) {
 	    		p.setValue(false);
 	    	}
 
-	    	List<GdlSentence> movesGdl = toDoes(moves);
 	    	for (GdlSentence g : movesGdl) {
 	    		gmapp.get(g).setValue(true);
 	    	}
@@ -311,13 +345,6 @@ public class PropNetImplementation extends StateMachine {
     {
         // List to contain the topological ordering.
         List<Proposition> order = new LinkedList<Proposition>();
-
-        // All of the components in the PropNet
-        //List<Component> components = new ArrayList<Component>(propNet.getComponents());
-
-        //for (Component c : components) {
-        //	System.out.println(c.getClass().getName() );
-        //}
 
         // All of the propositions in the PropNet.
         List<Proposition> propositions = new ArrayList<Proposition>(propNet.getPropositions());
@@ -370,6 +397,80 @@ public class PropNetImplementation extends StateMachine {
         return order;
     }
 
+    /**
+     * Function makes the bit maps. These maps take a base proposition or
+     * input proposition and maps that proposition to the ordered propositions
+     * that need to be updated.
+     */
+    private void getBaseBitMap()
+    {
+    	baseBitMap = new HashMap<GdlSentence, BitSet>();
+    	Map<GdlSentence, Proposition> bmap = propNet.getBasePropositions();
+    	for (GdlSentence g : bmap.keySet())
+    	{
+    		BitSet this_set = new BitSet(this.ordering.size());
+    		List<Proposition> check_props = new ArrayList<Proposition>();
+    		check_props.add(bmap.get(g));
+    		while( !check_props.isEmpty() ) {
+    			Proposition this_prop = check_props.remove(0);
+
+    			// Add children to check
+    			List<Component> checkComps = new ArrayList<Component>(this_prop.getOutputs());
+    			while( !checkComps.isEmpty() ) {
+    				Component this_comp = checkComps.remove(0);
+    				if ( this_comp.getClass() == Proposition.class ) {
+    	    			int ind = ordering.indexOf((Proposition)this_comp);
+    	    			if ( ind >= 0 ) {
+    	    				this_set.set(ind);
+    	    				check_props.add((Proposition)this_comp);
+    	    			}
+    				}
+    				else {
+    					checkComps.addAll(this_comp.getOutputs());
+    				}
+    			}
+    		}
+    		baseBitMap.put(g, this_set);
+    	}
+    }
+
+    /**
+     * Function makes the bit maps. These maps take a base proposition or
+     * input proposition and maps that proposition to the ordered propositions
+     * that need to be updated.
+     */
+    private void getInputBitMap()
+    {
+    	inputBitMap = new HashMap<GdlSentence, BitSet>();
+    	Map<GdlSentence, Proposition> imap = propNet.getInputPropositions();
+    	for (GdlSentence g : imap.keySet())
+    	{
+    		BitSet this_set = new BitSet(this.ordering.size());
+    		List<Proposition> check_props = new ArrayList<Proposition>();
+    		check_props.add(imap.get(g));
+    		while( !check_props.isEmpty() ) {
+    			Proposition this_prop = check_props.remove(0);
+
+    			// Add children to check
+    			List<Component> checkComps = new ArrayList<Component>(this_prop.getOutputs());
+    			while( !checkComps.isEmpty() ) {
+    				Component this_comp = checkComps.remove(0);
+    				if ( this_comp.getClass() == Proposition.class ) {
+    	    			int ind = ordering.indexOf((Proposition)this_comp);
+    	    			if ( ind >= 0 ) {
+    	    				this_set.set(ind);
+    	    				check_props.add((Proposition)this_comp);
+    	    			}
+    				}
+    				else {
+    					checkComps.addAll(this_comp.getOutputs());
+    				}
+    			}
+    		}
+    		inputBitMap.put(g, this_set);
+    	}
+    }
+
     /*
      * Debugger: Set a state, then read it back to make sure it is the same.
      */
@@ -390,9 +491,14 @@ public class PropNetImplementation extends StateMachine {
      */
     private void propagatePropNet()
     {
-    	for( Proposition p : ordering ) {
-    		p.setValue(p.getSingleInput().getValue());
+    	// Only update the propositions that need to be updated
+    	for (int i = updateOrder.nextSetBit(0); i >= 0; i = updateOrder.nextSetBit(i+1)) {
+    		// operate on index i here
+    		ordering.get(i).setValue(ordering.get(i).getSingleInput().getValue());
     	}
+
+    	// Now that we have propagated, clear the ordering
+    	updateOrder.clear();
     }
 
     /*
@@ -400,8 +506,16 @@ public class PropNetImplementation extends StateMachine {
      */
     private void transitionPropNet()
     {
-    	for (Proposition p : propNet.getBasePropositions().values()) {
-    		p.setValue(p.getSingleInput().getValue());
+    	// Get mapping from gdl sentence to base proposition
+    	Map<GdlSentence, Proposition> pmap = propNet.getBasePropositions();
+
+    	// Update only base propositions that have changed and flag
+    	for (GdlSentence g : pmap.keySet()) {
+    		Proposition p = pmap.get(g);
+    		if ( p.getValue() != p.getSingleInput().getValue() ) {
+    			p.setValue(p.getSingleInput().getValue());
+    			updateOrder.or(baseBitMap.get(g));
+    		}
     	}
     }
 
@@ -414,8 +528,9 @@ public class PropNetImplementation extends StateMachine {
     	Map<GdlSentence, Proposition> pmap = propNet.getBasePropositions();
 
     	// Set all base propositions to false
-    	for ( Proposition p : pmap.values() ) {
-    		p.setValue(false);
+    	for ( GdlSentence g : pmap.keySet() ) {
+    		pmap.get(g).setValue(false);
+    		updateOrder.or(baseBitMap.get(g));
     	}
 
     	// Cycle through state definition, set all corresponding propositions to true.
@@ -495,7 +610,6 @@ public class PropNetImplementation extends StateMachine {
             {
                 contents.add(p.getName());
             }
-
         }
         return new MachineState(contents);
     }

@@ -113,7 +113,6 @@ public final class PropNet
 	 */
 	public PropNet(List<Role> roles, Set<Component> components)
 	{
-
 	    this.roles = roles;
 		this.components = components;
 		this.propositions = recordPropositions();
