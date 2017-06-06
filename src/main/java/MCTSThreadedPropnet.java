@@ -21,8 +21,8 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	private int num_depth_charges;
 	private int depth_max;
 	private int timeBuffer;
-	private int numMoves;
 	private int pd_count;
+	private int num_cpus;
 	private PropNetImplementation propnetStateMachine;
 	private List<PropNetImplementation> threadNets;
 
@@ -36,29 +36,44 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 			throws TransitionDefinitionException, MoveDefinitionException,
 			GoalDefinitionException {
 		// Initializes instance variables
-		numMoves = 0;
 		timeBuffer = 1000;
 		cweight = 15;
 		depth_max = 100;
 		num_depth_charges = 0;
-		pd_count = 20;
+		pd_count = 1;
+		num_cpus = 4; // Update this based on number of threads you can run
 
-		// Create a propnet
-		propnetStateMachine = new PropNetImplementation();
-		propnetStateMachine.initialize(getMatch().getGame().getRules());
-		System.out.println("PROPNET SIZE: " + propnetStateMachine.getNumComponents());
-
-		//propnetStateMachine.renderToFile("aaa");
-		MachineState initState = propnetStateMachine.getInitialState();
-
-		// Create thread propnets - temporary fix
+		// Create thread propnets
 		threadNets = new ArrayList<PropNetImplementation>();
-		for (int i=0; i<pd_count; i++) {
-			PropNetImplementation pM = new PropNetImplementation();
-			pM.initialize(getMatch().getGame().getRules());
-			threadNets.add(pM);
+		List<Thread> runthreads = new ArrayList<Thread>();
+		List<PropNetThreadGen> ptthreads = new ArrayList<PropNetThreadGen>();
+
+		for (int i = 0; i < num_cpus; i++) {
+			PropNetThreadGen pt = new PropNetThreadGen(getMatch().getGame().getRules());
+			Thread t = new Thread( pt );
+			t.start();
+			runthreads.add(t);
+			ptthreads.add(pt);
+			//dct.run();
 		}
 
+		for (int i=0; i<num_cpus; i++) {
+			try {
+				runthreads.get(i).join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+
+		for (int i=0; i<num_cpus; i++) {
+			threadNets.add(ptthreads.get(i).getNet());
+		}
+
+		// Create a propnet
+		propnetStateMachine = threadNets.get(0);
+		System.out.println("PROPNET SIZE: " + propnetStateMachine.getNumComponents());
+
+		MachineState initState = propnetStateMachine.getInitialState();
 
 		//System.out.println(initStateProp);
 
@@ -435,32 +450,35 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 			double total = 0;
 			int runningCount = 0;
-			List<Thread> runthreads = new ArrayList<Thread>();
-			List<DepthChargeThread> dcthreads = new ArrayList<DepthChargeThread>();
 
-			for (int i = 0; i < count; i++) {
-				// depthCharge returns 0 after timeout exceeded, so we shouldn't count it to the runningCount
-				//PropNetImplementation psm = new PropNetImplementation( propnetStateMachine );
-				//PropNetImplementation psm = (PropNetImplementation) propnetStateMachine.clone();
-				DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(i), state, timeout, timeBuffer);
-				Thread t = new Thread( dct );
-				t.start();
-				runthreads.add(t);
-				dcthreads.add(dct);
-				//dct.run();
-			}
+			for (int i=0; i<pd_count; i++) {
+				List<Thread> runthreads = new ArrayList<Thread>();
+				List<DepthChargeThread> dcthreads = new ArrayList<DepthChargeThread>();
 
-			for (int i=0; i<count; i++) {
-				runthreads.get(i).join();
-			}
+				// Only start as many threads as there are cpus
+				for (int j = 0; j < num_cpus; j++) {
+					DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(j), state, timeout, timeBuffer);
+					Thread t = new Thread( dct );
+					t.start();
+					runthreads.add(t);
+					dcthreads.add(dct);
+				}
 
-			for (int i=0; i<count; i++) {
-				total = total + dcthreads.get(i).getValue();
-				runningCount++;
-			}
+				// Wait for all threads to finish
+				for (int j=0; j<num_cpus; j++) {
+					runthreads.get(j).join();
+				}
 
-			if (checkTimeout(timeout)) {
-				return 0;
+				// Add depth charge score to total and count
+				for (int j=0; j<num_cpus; j++) {
+					total = total + dcthreads.get(j).getValue();
+					runningCount++;
+				}
+
+				if (checkTimeout(timeout)) {
+					return 0;
+				}
+
 			}
 			return total / runningCount;
 		}
