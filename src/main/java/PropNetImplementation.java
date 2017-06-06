@@ -33,6 +33,9 @@ public class PropNetImplementation extends StateMachine {
     /** The player roles */
     private List<Role> roles;
 
+    /** List of base proposition booleans **/
+    /** List of input proposition booleans **/
+
     public PropNetImplementation() {
     	this.propNet = null;
     	this.ordering = null;
@@ -62,7 +65,7 @@ public class PropNetImplementation extends StateMachine {
     }
 
     /**
-     * Redners prop net to file
+     * Renders prop net to file
      */
     public void renderToFile(String filename) {
     	propNet.renderToFile(filename);
@@ -82,8 +85,16 @@ public class PropNetImplementation extends StateMachine {
     	propagatePropNet();
 
     	// Check terminal condition
+    	return this.isTerminal();
+    }
+
+    /**
+     * This version of is terminal checks based on what is currently set in the propnet.
+     * Does not require reset.
+     */
+    public boolean isTerminal() {
     	Proposition termProp = propNet.getTerminalProposition();
-    	return termProp.getValue(); //termProp.getSingleInput().getValue();
+    	return termProp.getValue();
     }
 
     /**
@@ -99,21 +110,25 @@ public class PropNetImplementation extends StateMachine {
     	// Set base propositions based on state
     	setBaseProps(state);
 
+    	// Find goal propositions
+    	return this.getGoal(role);
+    }
+
+    /**
+     * Computes the goal for a role in the currently loaded state.
+     */
+    public int getGoal(Role role) {
     	// propagate
     	propagatePropNet();
 
-    	// Find goal propositions
-    	for (Proposition gp : propNet.getGoalPropositions().get(role) )
-    	{
-    		gp.setValue(gp.getSingleInput().getValue());
+    	// Search for a true goal proposition
+    	for (Proposition gp : propNet.getGoalPropositions().get(role)) {
     		if (gp.getValue()) {
-    	    	// Return value of true proposition
     			return getGoalValue(gp);
     		}
     	}
-
-    	// Other
-        return 0;
+    	// Else
+    	return 0;
     }
 
     /**
@@ -171,16 +186,32 @@ public class PropNetImplementation extends StateMachine {
     		// Set base propositions based on state
     		setBaseProps(state);
 
+	    	// Return legal moves
+    		return this.getLegalMoves(role);
+	    }
+    	catch(Exception e) {
+    		throw new MoveDefinitionException(state, role);
+    	}
+    }
+
+    /**
+     * Computes the legal moves for role in the current propnet state.
+     */
+    public List<Move> getLegalMoves(Role role)
+            throws MoveDefinitionException {
+    	try {
 	    	// Get all possible moves for role
 	    	List<Move> moves = findActions(role);
 
 	        // Set input propositions based on possible moves
 	    	Map<GdlSentence, Proposition> gmapp = propNet.getInputPropositions();
 
+	    	// Set all inputs to false
 	    	for (Proposition p : gmapp.values()) {
 	    		p.setValue(false);
 	    	}
 
+	    	// Set only our moves to true for check
 	    	List<GdlSentence> movesGdl = toDoes(moves);
 	    	for (GdlSentence g : movesGdl) {
 	    		gmapp.get(g).setValue(true);
@@ -201,11 +232,16 @@ public class PropNetImplementation extends StateMachine {
 	    		}
 	    	}
 
+	    	// Reset to false
+	    	for (GdlSentence g : movesGdl) {
+	    		gmapp.get(g).setValue(false);
+	    	}
+
 	    	// Return moves that are legal
 	        return legalMoves;
 	    }
     	catch(Exception e) {
-    		throw new MoveDefinitionException(state, role);
+    		throw new MoveDefinitionException(null, role);
     	}
     }
 
@@ -219,6 +255,21 @@ public class PropNetImplementation extends StateMachine {
     		// Set base state
     		setBaseProps(state);
 
+    		this.toNextState(moves);
+
+    		return getStateFromBase();
+    	}
+    	catch(Exception e) {
+    		throw new TransitionDefinitionException(state, moves);
+    	}
+    }
+
+    /**
+     * Gets the next state given propnet state.
+     */
+    public void toNextState(List<Move> moves)
+            throws TransitionDefinitionException {
+    	try {
     		// Set input propositions
 	    	Map<GdlSentence, Proposition> gmapp = propNet.getInputPropositions();
 
@@ -236,37 +287,10 @@ public class PropNetImplementation extends StateMachine {
 
     		// Transition
     		transitionPropNet();
-
-    		return getStateFromBase();
     	}
     	catch(Exception e) {
-    		throw new TransitionDefinitionException(state, moves);
+    		throw new TransitionDefinitionException(null, moves);
     	}
-    }
-
-    /**
-     * Returns a list of every joint move possible in the given state in which
-     * the given role makes the given move. This will be a subset of the list
-     * of joint moves given by {@link #getLegalJointMoves(MachineState)}.
-     */
-	@Override
-	public List<List<Move>> getLegalJointMoves(MachineState state, Role role, Move move) throws MoveDefinitionException
-    {
-        List<List<Move>> legals = new ArrayList<List<Move>>();
-        for (Role r : getRoles()) {
-            if (r.equals(role)) {
-                List<Move> m = new ArrayList<Move>();
-                m.add(move);
-                legals.add(m);
-            } else {
-                legals.add(getLegalMoves(state, r));
-            }
-        }
-
-        List<List<Move>> crossProduct = new ArrayList<List<Move>>();
-        crossProductLegalMoves(legals, crossProduct, new LinkedList<Move>());
-
-        return crossProduct;
     }
 
     /**
@@ -384,7 +408,7 @@ public class PropNetImplementation extends StateMachine {
     /*
      * Sets base propositions based on state
      */
-    private void setBaseProps(MachineState state)
+    public void setBaseProps(MachineState state)
     {
     	// Get mapping from gdl sentence to base proposition
     	Map<GdlSentence, Proposition> pmap = propNet.getBasePropositions();
@@ -479,5 +503,14 @@ public class PropNetImplementation extends StateMachine {
     public int getNumComponents()
     {
     	return propNet.getComponents().size();
+    }
+
+    /**
+     * Returns a random joint move from among all the possible joint moves in
+     * the current propnet state in which the given role makes the given move.
+     */
+    public List<Move> getRandomJointMove() throws MoveDefinitionException
+    {
+    	return getRandomJointMove(getStateFromBase());
     }
 }

@@ -18,11 +18,23 @@ import org.ggp.base.util.statemachine.implementation.prover.ProverStateMachine;
 
 public class MCTSThreadedPropnet extends StateMachineGamer {
 
+	// Number of depth charges per turn
 	private int num_depth_charges;
+
+	// Maximum depth - forces exploration
 	private int depth_max;
+
+	// Time buffer
 	private int timeBuffer;
+
+	// Count for number of cpu cycles to run depth threads
 	private int pd_count;
+
+	// Number of CPUs available for threading
 	private int num_cpus;
+	private double goal_heuristic_weight;
+	private double mobility_heuristic_weight;
+	private double opp_mob_heuristic_weight;
 	private PropNetImplementation propnetStateMachine;
 	private List<PropNetImplementation> threadNets;
 
@@ -40,8 +52,8 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		cweight = 15;
 		depth_max = 100;
 		num_depth_charges = 0;
-		pd_count = 1;
-		num_cpus = 4; // Update this based on number of threads you can run
+		pd_count = 10;
+		num_cpus = Runtime.getRuntime().availableProcessors(); // Update this based on number of threads you can run
 
 		// Create thread propnets
 		threadNets = new ArrayList<PropNetImplementation>();
@@ -88,7 +100,6 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 		MachineState state = initState;
 
-		//boolean propNetEnsure = true;
 		while ( !checkTimeout(timeout) ) {
 			if (propnetStateMachine.findTerminalp(state)) {
 				reward_count++;
@@ -114,11 +125,9 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 					}
 					List<Move> simulatedMoves = propnetStateMachine.getRandomJointMove(state);
 					state = propnetStateMachine.getNextState(state,simulatedMoves);;
-					//propNetEnsure = propNetEnsure & propnetStateMachine.checkStateFunctionality(state);
-				}
+					}
 			}
 		}
-		//System.out.println("PROPNET WORKING: " + propNetEnsure);
 		cweight = 0.8*(rewards / reward_count) / Math.sqrt(Math.log(turn_steps / step_count));
 		System.out.println(cweight);
 		System.out.println(rewards);
@@ -252,21 +261,13 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 			if (propnetStateMachine.isTerminal(state)) {
 				return 0;
 			}
-
-			//List<Move> ourAvailableActions = stateMachine.getLegalMoves(state, role);
-			//System.out.println( "STATE: " + ourAvailableActions );
 			List<Move> ourAvailableActions = propnetStateMachine.getLegalMoves(state, role);
-			//System.out.println( "PROP: " + testAvailable );
 			for (int i = 0; i < ourAvailableActions.size(); i++) {
 				Move ourTakenAction = ourAvailableActions.get(i);
-
-				// minNodes (blue) are the exact same as maxNodes (red) except
-				// their action is non-null (i.e. role and state are the same)
 
 				if (isSinglePlayer) {
 					List<Move> ourTakenActions = new ArrayList<Move>();
 					ourTakenActions.add(ourTakenAction);
-					//MachineState newState = stateMachine.findNext(ourTakenActions, state);
 					MachineState newState = propnetStateMachine.findNext(ourTakenActions, state);
 					MCTSNode grandchild = new MCTSNode(node, role, newState, ourTakenAction);
 					node.addChild(grandchild);
@@ -274,11 +275,9 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 				} else {
 					MCTSNode child = new MCTSNode(node, role, state, ourTakenAction);
 					node.addChild(child);
-					//List<List<Move>> theirAvailableActions = stateMachine.getLegalJointMoves(state, role, ourTakenAction);
 					List<List<Move>> theirAvailableActions = propnetStateMachine.getLegalJointMoves(state, role, ourTakenAction);
 					for (int j = 0; j < theirAvailableActions.size(); j++) {
 						List<Move> theirTakenActions = theirAvailableActions.get(j);
-						//MachineState newState = stateMachine.findNext(theirTakenActions, state);
 						MachineState newState = propnetStateMachine.findNext(theirTakenActions, state);
 						MCTSNode grandchild = new MCTSNode(child, role, newState, null);
 						child.addChild(grandchild);
@@ -286,32 +285,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 					}
 				}
 			}
-
-			/*
-			List<Move> ourAvailableActions = stateMachine.getLegalMoves(state, role);
-			if (ourAvailableActions.size() > node.getNumChildren()) {
-				Move ourTakenAction = ourAvailableActions.get(node.getNumChildren());
-				MCTSNode child = new MCTSNode(node, role, state, ourTakenAction);
-				node.addChild(child);
-
-				if (isSinglePlayer) {
-					List<Move> ourTakenActions = new ArrayList<Move>();
-					ourTakenActions.add(ourTakenAction);
-					MachineState newState = stateMachine.findNext(ourTakenActions, state);
-					MCTSNode grandchild = new MCTSNode(child, role, newState, null);
-					child.addChild(grandchild);
-				} else {
-					List<List<Move>> theirAvailableActions = stateMachine.getLegalJointMoves(state, role, ourTakenAction);
-					if (theirAvailableActions.size() > child.getNumChildren()) {
-						List<Move> theirTakenActions = theirAvailableActions.get(child.getNumChildren());
-						MachineState newState = stateMachine.findNext(theirTakenActions, state);
-						MCTSNode grandchild = new MCTSNode(child, role, newState, null);
-						child.addChild(grandchild);
-					}
-				}
-			}
-			*/
-			return new_children;//ourAvailableActions.size();
+			return new_children;
 		}
 		catch(Exception e) {
 			throw new GoalDefinitionException(state, role);
@@ -319,19 +293,11 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	}
 
 	private int simulate(MCTSNode node, long timeout) throws GoalDefinitionException {
-		//StateMachine sm = getStateMachine();
-		//if (sm.isTerminal(node.getState())) {
-		//	System.out.print( "CHECK: " + node.getState() );
-		//	System.out.print( ", " + propnetStateMachine.isTerminal(node.getState()) );
-		//	System.out.print( ", " + sm.findReward(getRole(), node.getState()) );
-		//	System.out.println( ", " + propnetStateMachine.findReward(getRole(), node.getState()) );
-		//}
 		if (propnetStateMachine.isTerminal(node.getState())) {
-			//return sm.findReward(getRole(),node.getState()
 			return propnetStateMachine.findReward(getRole(), node.getState());
 		}
-		num_depth_charges = num_depth_charges + pd_count;
-		return (int) monteCarlo(node.getRole(), node.getState(), pd_count, timeout);
+		num_depth_charges = num_depth_charges + pd_count*num_cpus;
+		return (int) monteCarlo(node.getRole(), node.getState(), timeout);
 	}
 
 	private void backpropagate(MCTSNode node, int score) {
@@ -444,7 +410,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 	private double cweight;
 
-	private double monteCarlo(Role role, MachineState state, int count, long timeout) throws GoalDefinitionException {
+	private double monteCarlo(Role role, MachineState state, long timeout) throws GoalDefinitionException {
 		try {
 			//StateMachine stateMachine = getStateMachine();
 
