@@ -223,15 +223,22 @@ public class PropNetImplementation extends StateMachine {
 	        // Set input propositions based on possible moves
 	    	Map<GdlSentence, Proposition> gmapp = propNet.getInputPropositions();
 
-	    	// Set all inputs to false
-	    	for (Proposition p : gmapp.values()) {
-	    		p.setValue(false);
-	    	}
-
 	    	// Set only our moves to true for check
 	    	List<GdlSentence> movesGdl = toDoes(moves);
-	    	for (GdlSentence g : movesGdl) {
-	    		gmapp.get(g).setValue(true);
+	    	for (GdlSentence g : gmapp.keySet()) {
+	    		Proposition p = gmapp.get(g);
+	    		if (movesGdl.contains(g)) {
+	    			if (!p.getValue()) {
+	    				p.setValue(true);
+	    				updateOrder.or(inputBitMap.get(g));
+	    			}
+	    		}
+	    		else {
+	    			if (p.getValue()) {
+	    				p.setValue(false);
+	    				updateOrder.or(inputBitMap.get(g));
+	    			}
+	    		}
 	    	}
 
 	    	// Propagate
@@ -247,11 +254,6 @@ public class PropNetImplementation extends StateMachine {
 	        		Move mv = getMoveFromProposition(lp);
 	        		legalMoves.add(mv);
 	    		}
-	    	}
-
-	    	// Reset to false
-	    	for (GdlSentence g : movesGdl) {
-	    		gmapp.get(g).setValue(false);
 	    	}
 
 	    	// Return moves that are legal
