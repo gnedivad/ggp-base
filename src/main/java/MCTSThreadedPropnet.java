@@ -14,6 +14,7 @@ import org.ggp.base.util.statemachine.exceptions.GoalDefinitionException;
 import org.ggp.base.util.statemachine.exceptions.MoveDefinitionException;
 import org.ggp.base.util.statemachine.exceptions.TransitionDefinitionException;
 import org.ggp.base.util.statemachine.implementation.prover.ProverStateMachine;
+import org.python.modules.math;
 
 
 public class MCTSThreadedPropnet extends StateMachineGamer {
@@ -38,6 +39,8 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	private PropNetImplementation propnetStateMachine;
 	private List<PropNetImplementation> threadNets;
 	private int charge_depth;
+	private double mW;
+	private double gW;
 
 	@Override
 	public StateMachine getInitialStateMachine() {
@@ -56,6 +59,8 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		num_depth_charges = 0;
 		pd_count = 11;
 		num_cpus = Runtime.getRuntime().availableProcessors(); // Update this based on number of threads you can run
+		gW = 1;
+		mW = 1;
 
 		// Create thread propnets
 		threadNets = new ArrayList<PropNetImplementation>();
@@ -101,6 +106,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		double rewards = 0;
 		double reward_count = 0;
 		long total_game_time = 0;
+		double cumulative_rewards = 0;
 
 		while ( !checkTimeout(timeout) ) {
 			List<Thread> runthreads2 = new ArrayList<Thread>();
@@ -133,6 +139,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 					step_count = step_count + dcthreads.get(j).getStepCount();
 					turn_steps = turn_steps + dcthreads.get(j).getMoveCount();
 					total_game_time = total_game_time + dcthreads.get(j).getGameTime();
+					cumulative_rewards = cumulative_rewards + dcthreads.get(j).getCumVal();
 				}
 			}
 		}
@@ -145,19 +152,32 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		System.out.println(total_game_time / reward_count);
 
 		// Calculate approximate charge depth based on how long it takes to play a game and how many moves there are per turn
-
-		while( charge_depth < 3 ) {
+		double moves_per_turn = (turn_steps / step_count);
+		double ave_game_time = (total_game_time / reward_count);
+		double ave_game_step = (step_count / reward_count);
+		while( charge_depth < 3 && pd_count > 1) {
 			pd_count--;
-			charge_depth = (int) ((3000 * step_count * step_count * reward_count) / (total_game_time * pd_count * turn_steps));
+			charge_depth = (int) ( (1000*ave_game_step) / (ave_game_time * moves_per_turn * pd_count) );
 		}
+
+		if ( charge_depth < 3 ) {
+			charge_depth = 3;
+		}
+		else {
+			charge_depth = (int) (math.ceil( charge_depth / 2 ) * 2) - 1;
+		}
+
+		double totWeight = cumulative_rewards + turn_steps;
+		mW = turn_steps / totWeight;
+		gW = cumulative_rewards / totWeight;
+
 		System.out.println(pd_count);
 		System.out.println(charge_depth);
 	}
 
 	private MCTSNode select(MCTSNode node, int depth) {
 		depth++;
-		if ( depth > depth_max ) {
-			System.out.println("MAX DEPTH");
+		if ( node.getTerminal() ) {
 			return null;
 		}
 		if (node.getNumVisits() == 0 || node.getNumChildren() == 0) {
@@ -170,22 +190,27 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		//	}
 		//}
 		MCTSNode result = node;
+
 		int[] scores = new int[node.getNumChildren()];
 		int[] indexes = new int[node.getNumChildren()];
 		for (int i = 0; i < node.getNumChildren(); i++) {
 			MCTSNode child = node.getChild(i);
-			int newScore = 0;
+
+			int newScore = 100000;
 			// Minnodes have no action taken
-			if ( node.getAction() == null && propnetStateMachine.getRoles().size() > 1 ) {
-				newScore = selectfn(child, 1);
+			if ( !child.getTerminal() ) {
+				if ( node.getAction() == null || propnetStateMachine.getRoles().size() == 1 ) {
+					newScore = selectfn(child, 1);
+				}
+				else {
+					newScore = selectfn(child, -1);
+				}
+				//if (newScore > score) {
+				//	score = newScore;
+				//	result = child;
+				//}
 			}
-			else {
-				newScore = selectfn(child, -1);
-			}
-			//if (newScore > score) {
-			//	score = newScore;
-			//	result = child;
-			//}
+
 			scores[i] = newScore;
 			indexes[i] = i;
 
@@ -274,29 +299,42 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		MachineState state = node.getState();
 		Role role = node.getRole();
 		int new_children = 0;
+		propnetStateMachine.setBaseProps(state);
 		try {
 			//if (stateMachine.isTerminal(state)) {
-			if (propnetStateMachine.isTerminal(state)) {
+			if (propnetStateMachine.isTerminal()) {
+				System.out.println("TERMINAL: " + state + ", " + node.getAction());
+				int reward = propnetStateMachine.getGoal(getRole());
+				node.setTerminal(true);
+				node.setUtility(reward);
+				backPropagateKnown( node, reward );
+				System.out.println(reward + ", " + node.getTerminal());
 				return 0;
 			}
-			List<Move> ourAvailableActions = propnetStateMachine.getLegalMoves(state, role);
+			List<Move> ourAvailableActions = propnetStateMachine.getLegalMoves(role);
 			for (int i = 0; i < ourAvailableActions.size(); i++) {
 				Move ourTakenAction = ourAvailableActions.get(i);
 
 				if (isSinglePlayer) {
+					propnetStateMachine.setBaseProps(state);
 					List<Move> ourTakenActions = new ArrayList<Move>();
 					ourTakenActions.add(ourTakenAction);
-					MachineState newState = propnetStateMachine.findNext(ourTakenActions, state);
+					//MachineState newState = propnetStateMachine.findNext(ourTakenActions, state);
+					propnetStateMachine.toNextState(ourTakenActions);
+					MachineState newState = propnetStateMachine.getStateFromBase();
 					MCTSNode grandchild = new MCTSNode(node, role, newState, ourTakenAction);
 					node.addChild(grandchild);
 					new_children++;
 				} else {
 					MCTSNode child = new MCTSNode(node, role, state, ourTakenAction);
 					node.addChild(child);
-					List<List<Move>> theirAvailableActions = propnetStateMachine.getLegalJointMoves(state, role, ourTakenAction);
+					List<List<Move>> theirAvailableActions = propnetStateMachine.getLegalJointMoves(role, ourTakenAction);
 					for (int j = 0; j < theirAvailableActions.size(); j++) {
 						List<Move> theirTakenActions = theirAvailableActions.get(j);
-						MachineState newState = propnetStateMachine.findNext(theirTakenActions, state);
+						//MachineState newState = propnetStateMachine.findNext(theirTakenActions, state);
+						propnetStateMachine.toNextState(theirTakenActions);
+						MachineState newState = propnetStateMachine.getStateFromBase();
+						propnetStateMachine.setBaseProps(state);
 						MCTSNode grandchild = new MCTSNode(child, role, newState, null);
 						child.addChild(grandchild);
 						new_children++;
@@ -318,11 +356,114 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		return (int) monteCarlo(node.getRole(), node.getState(), timeout);
 	}
 
+	private void backPropagateKnown(MCTSNode node, int score) {
+		if (!node.hasParent()) {
+			// Never set root as terminal
+			return;
+		}
+
+		int node_score = 0;
+		if (node.getTerminal()) {
+			node_score = node.getUtility();
+		}
+		else if(node.getNumVisits() == 1) {
+			node_score = score;
+		}
+		else {
+			node_score = node.getUtility() / node.getNumVisits();
+		}
+		if ( node.getAction() == null || propnetStateMachine.getRoles().size() == 1 ) {
+			if (node.getTerminal()) {
+				node.setUtility( Math.max( node_score, score ) );
+				System.out.println("ASETTING NODE: " + node_score + ", " + node.getNumVisits() + ", " + node.getAction() + ", " + node.getUtility() + ", " + node.getState() );
+				if ( node.hasParent() && ( node.getNumVisits() >= node.getNumChildren() ) ) {
+					backPropagateKnown(node.getParent(), node_score);
+				}
+			}
+			else {
+				if (node_score < score) {
+					node.setTerminal(true);
+					node.setUtility(score);
+					System.out.println("BSETTING NODE: " + node_score + ", " + node.getNumVisits() + ", " + node.getAction() + ", " + node.getUtility() + ", " + node.getState() );
+					if (node.hasParent() && ( node.getNumVisits() >= node.getNumChildren() )) {
+						backPropagateKnown(node.getParent(), score);
+					}
+				}
+				else {
+					int max_score = 0;
+					boolean solved = true;
+					for (MCTSNode m : node.getChildren()) {
+						if (m.getTerminal()) {
+							max_score = Math.max(max_score, m.getUtility());
+						}
+						else {
+							solved = false;
+							break;
+						}
+					}
+					if (solved) {
+						node.setTerminal(true);
+						node.setUtility(max_score);
+						System.out.println("CSETTING NODE: " + node_score + ", " + node.getNumVisits() + ", " + node.getAction() + ", " + node.getUtility() + ", " + node.getState() );
+						if (node.hasParent() && ( node.getNumVisits() >= node.getNumChildren() )) {
+							backPropagateKnown(node.getParent(), max_score);
+						}
+					}
+				}
+			}
+		}
+		else {
+			if (node.getTerminal()) {
+				node.setUtility( Math.min( node_score, score ) );
+				System.out.println("ASETTING NODE: " + node_score + ", " + node.getNumVisits() + ", " + node.getAction() + ", " + node.getUtility() + ", " + node.getState() );
+				if (node.hasParent() && ( node.getNumVisits() >= node.getNumChildren() )) {
+					backPropagateKnown(node.getParent(), node.getUtility());
+				}
+			}
+			else {
+				if (node_score > score) {
+					node.setTerminal(true);
+					node.setUtility(score);
+					System.out.println("BSETTING NODE: " + node_score + ", " + node.getNumVisits() + ", " + node.getAction() + ", " + node.getUtility() + ", " + node.getState() );
+					if (node.hasParent() && ( node.getNumVisits() >= node.getNumChildren() )) {
+						backPropagateKnown(node.getParent(), score);
+					}
+				}
+				else {
+					int min_score = 100;
+					boolean solved = true;
+					for (MCTSNode m : node.getChildren()) {
+						if (m.getTerminal()) {
+							min_score = Math.min(min_score, m.getUtility());
+						}
+						else {
+							solved = false;
+							break;
+						}
+					}
+					if (solved) {
+						node.setTerminal(true);
+						node.setUtility(min_score);
+						System.out.println("CSETTING NODE: " + node_score + ", " + node.getNumVisits() + ", " + node.getAction() + ", " + node.getUtility() + ", " + node.getState() );
+						if (node.hasParent() && ( node.getNumVisits() >= node.getNumChildren() )) {
+							backPropagateKnown(node.getParent(), min_score);
+						}
+					}
+				}
+			}
+		}
+
+
+	}
+
+	// Only backpropagate to non known nodes
 	private void backpropagate(MCTSNode node, int score) {
-		node.setNumVisits(node.getNumVisits() + 1);
-		node.setUtility(node.getUtility() + score);
-		if (node.hasParent()) {
-			backpropagate(node.getParent(), score);
+		if (!node.getTerminal()) {
+			node.setNumVisits(node.getNumVisits() + 1);
+			node.setUtility(node.getUtility() + score);
+			if (node.hasParent()) {
+				backpropagate(node.getParent(), score);
+			}
 		}
 	}
 
@@ -342,18 +483,21 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		//List<Move> actions = stateMachine.getLegalMoves(state, role);
 		List<Move> actions = propnetStateMachine.getLegalMoves(state, role);
 
-		System.out.println(actions);
-
 		if (actions.size() == 1) {
 			return actions.get(0);
 		}
 
 		MCTSNode root = new MCTSNode(null, role, state, null);
-		int counter = 0;
+		int counter = -1;
 
 		while (counter < 2000) {
 			if (checkTimeout(timeout)) break;
 			MCTSNode selectedNode = select(root, 0);
+
+			if ( selectedNode == null ) {
+				System.out.println("WHY BREAK?");
+				break;
+			}
 
 			if (checkTimeout(timeout)) break;
 			int numChildren = expand(selectedNode, isSinglePlayer);
@@ -380,7 +524,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 						if (checkTimeout(timeout)) break;
 						backpropagate(gcNode, score);
-				}
+					}
 				}
 			}
 
@@ -407,14 +551,22 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		for (int i = 0; i < root.getNumChildren(); i++) {
 			MCTSNode child = root.getChild(i);
 			int utility = 0;
-			if (child.getNumVisits() == 0) {
+			if (child.getTerminal()) {
+				utility = child.getUtility();
+			}
+			else if (child.getNumVisits() == 0) {
 				utility = child.getUtility();
 			}
 			else {
 				utility = child.getUtility() / child.getNumVisits();
 			}
 			//int utility = selectfn(child);
-			System.out.println("child " + i + " " + child.getAction() + " " + utility + " " + child.getNumVisits());
+			if (child.getTerminal()) {
+				System.out.println("**child " + i + " " + child.getAction() + " " + utility + " " + child.getNumVisits());
+			}
+			else {
+				System.out.println("child " + i + " " + child.getAction() + " " + utility + " " + child.getNumVisits());
+			}
 			if (utility > maxUtility) {
 				maxUtility = utility;
 				bestAction = child.getAction();
@@ -449,7 +601,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 				// Only start as many threads as there are cpus
 				for (int j = 0; j < num_cpus; j++) {
-					DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(j), state, timeout, timeBuffer, charge_depth);
+					DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(j), state, timeout, timeBuffer, charge_depth, gW, mW);
 					Thread t = new Thread( dct );
 					t.start();
 					runthreads.add(t);
