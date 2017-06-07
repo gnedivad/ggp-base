@@ -83,13 +83,28 @@ public class PropNetImplementation extends StateMachine {
     @Override
     public void initialize(List<Gdl> description) {
         try {
+        	System.out.println("CREATING PROPNET: ");
             propNet = OptimizingPropNetFactory.create(description);
             roles = propNet.getRoles();
-            ordering = getOrdering();
-            updateOrder = new BitSet(ordering.size());
-            updateOrderL = new BitSet(ordering.size());
-            getBaseBitMap();
-            getInputBitMap();
+            int orderSize = propNet.getPropositions().size() - propNet.getBasePropositions().size() - propNet.getInputPropositions().size() - 1;
+            updateOrder = new BitSet(orderSize);
+            updateOrderL = new BitSet(orderSize);
+        	System.out.println("ORDERING: ");
+            //List<Proposition> otherOrder = getOrdering();
+            ordering = getOrderingObsolete();
+
+            //for (Proposition p : ordering) {
+            //	if (!otherOrder.contains(p)) {
+            //		System.out.println(p);
+            //	}
+            //}
+
+        	//ordering = getOrdering();
+            //System.out.println("BASE MAP: ");
+            //getBaseBitMap();
+        	//System.out.println("INPUT MAP: ");
+            //getInputBitMap();
+        	System.out.println("MOVE MAP: ");
             determineMoveMap();
             solveInitialState();
             initializeLegalCheck();
@@ -377,24 +392,106 @@ public class PropNetImplementation extends StateMachine {
      *
      * @return The order in which the truth values of propositions need to be set.
      */
-    public List<Proposition> getOrdering()
-    {
-        // List to contain the topological ordering.
-        List<Proposition> order = new LinkedList<Proposition>();
+    public List<Proposition> getOrdering() {
+    	// Note, this function now also handles creating the bit maps
+    	// List to contain the topological ordering
+    	List<Proposition> order = new LinkedList<Proposition>();
 
-        // All of the propositions in the PropNet.
-        List<Proposition> propositions = new ArrayList<Proposition>(propNet.getPropositions());
+    	// Ordered list of base props and input props (for bit maps)
+    	List<Proposition> baseProps = new ArrayList<Proposition>();
+    	List<Proposition> inputProps = new ArrayList<Proposition>();
 
-        // Remove the base, input, and init propositions
-        propositions.removeAll(propNet.getBasePropositions().values());
-        propositions.removeAll(propNet.getInputPropositions().values());
-        propositions.remove(propNet.getInitProposition());
+    	List<GdlSentence> baseSentence = new ArrayList<GdlSentence>();
+    	List<GdlSentence> inputSentence = new ArrayList<GdlSentence>();
 
-        // Cycle through propositions
-        List<Proposition> needOrder = new ArrayList<Proposition>(propositions);
-        int counter = 0;
-        while ( !needOrder.isEmpty() ) {
-        	Proposition p = needOrder.get(counter);
+    	// Propositions to check
+    	List<Proposition> searchProps = new ArrayList<Proposition>();
+    	for (GdlSentence g : propNet.getBasePropositions().keySet()) {
+    		baseSentence.add(g);
+    		baseProps.add(propNet.getBasePropositions().get(g));
+    	}
+
+    	for (GdlSentence g : propNet.getInputPropositions().keySet()) {
+    		inputSentence.add(g);
+    		inputProps.add(propNet.getInputPropositions().get(g));
+    	}
+
+    	for (Proposition p : baseProps) {
+    		// Add base prop children
+    		// Check inputs to proposition.
+        	List<Component> children = new ArrayList<Component>(p.getOutputs());
+        	while (!children.isEmpty()) {
+        		Component thisC = children.remove(0);
+
+        		// If a child is a proposition that still needs ordering, then keep
+        		if ( thisC.getClass() == Proposition.class ) {
+        			Proposition thisP = (Proposition) thisC;
+        			if (!baseProps.contains(thisP) && !inputProps.contains(thisP) && !searchProps.contains(thisP)) {
+        				searchProps.add(thisP);
+        			}
+        		}
+        		// If the child is a transition, also ignore
+        		else if ( thisC.getClass() != Transition.class ) {
+        			// Add inputs to ancestor to the check
+        			children.addAll( thisC.getOutputs() );
+        		}
+        	}
+    	}
+
+    	for (Proposition p : inputProps) {
+    		// Add base prop children
+    		// Check inputs to proposition.
+        	List<Component> children = new ArrayList<Component>(p.getOutputs());
+        	while (!children.isEmpty()) {
+        		Component thisC = children.remove(0);
+
+        		// If a child is a proposition that still needs ordering, then keep
+        		if ( thisC.getClass() == Proposition.class ) {
+        			Proposition thisP = (Proposition) thisC;
+        			if (!baseProps.contains(thisP) && !inputProps.contains(thisP) && !searchProps.contains(thisP)) {
+        				searchProps.add(thisP);
+        			}
+        		}
+        		// If the child is a transition, also ignore
+        		else if ( thisC.getClass() != Transition.class ) {
+        			// Add inputs to ancestor to the check
+        			children.addAll( thisC.getOutputs() );
+        		}
+        	}
+    	}
+
+    	Proposition ii = propNet.getInitProposition();
+    	List<Component> cc = new ArrayList<Component>(ii.getOutputs());
+    	while (!cc.isEmpty()) {
+    		Component thisC = cc.remove(0);
+
+    		// If a child is a proposition that still needs ordering, then keep
+    		if ( thisC.getClass() == Proposition.class ) {
+    			Proposition thisP = (Proposition) thisC;
+    			if (!baseProps.contains(thisP) && !inputProps.contains(thisP) && !searchProps.contains(thisP)) {
+    				searchProps.add(thisP);
+    			}
+    		}
+    		// If the child is a transition, also ignore
+    		else if ( thisC.getClass() != Transition.class ) {
+    			// Add inputs to ancestor to the check
+    			cc.addAll( thisC.getOutputs() );
+    		}
+    	}
+
+    	System.out.println(searchProps.size());
+    	System.out.println(inputProps.size() + baseProps.size());
+
+    	// Order to input map
+    	Map<Proposition, BitSet> orderInputMap = new HashMap<Proposition, BitSet>();
+
+    	// Order to base map
+    	Map<Proposition, BitSet> orderBaseMap = new HashMap<Proposition, BitSet>();
+
+    	while(!searchProps.isEmpty()) {
+    		Proposition p = searchProps.remove(0);
+    		BitSet p_baseSet = new BitSet(baseProps.size());
+    		BitSet p_inputSet = new BitSet(inputProps.size());
 
         	// Check inputs to proposition.
         	List<Component> components = new ArrayList<Component>(p.getInputs());
@@ -403,7 +500,19 @@ public class PropNetImplementation extends StateMachine {
 
         		// If an ancestor is a proposition that still needs ordering, then keep
         		if ( thisC.getClass() == Proposition.class ) {
-        			if ( needOrder.contains(thisC) ) {
+        			Proposition thisP = (Proposition) thisC;
+        			if ( order.contains(thisP) ) {
+        				p_baseSet.or(orderBaseMap.get(thisP));
+        				p_inputSet.or(orderInputMap.get(thisP));
+        			}
+        			else if ( baseProps.contains(thisP) ) {
+        				p_baseSet.set(baseProps.indexOf(thisP));
+        			}
+        			else if ( inputProps.contains(thisP) ) {
+        				p_inputSet.set(inputProps.indexOf(thisP));
+        			}
+        			else {
+        				// Hasn't been ordered yet, or isn't a base or input proposition.
         				break;
         			}
         		}
@@ -417,7 +526,170 @@ public class PropNetImplementation extends StateMachine {
         	// Proposition ancestors are all base, inputs, or already ordered, add
         	if ( components.isEmpty() ) {
         		order.add(p);
+        		orderBaseMap.put(p, p_baseSet);
+        		orderInputMap.put(p, p_inputSet);
+
+        		// Add its children to the search
+        		// Check inputs to proposition.
+            	List<Component> children = new ArrayList<Component>(p.getOutputs());
+            	while (!children.isEmpty()) {
+            		Component thisC = children.remove(0);
+
+            		// If a child is a proposition that still needs ordering, then keep
+            		if ( thisC.getClass() == Proposition.class ) {
+            			Proposition thisP = (Proposition) thisC;
+            			if (!baseProps.contains(thisP) && !inputProps.contains(thisP) && !order.contains(thisP) && !searchProps.contains(thisP)) {
+            				searchProps.add(thisP);
+            			}
+            		}
+            		// If the child is a transition, also ignore
+            		else if ( thisC.getClass() != Transition.class ) {
+            			// Add inputs to ancestor to the check
+            			children.addAll( thisC.getOutputs() );
+            		}
+            	}
+        	}
+        	else {
+        		// Otherwise read to end of search
+        		searchProps.add(p);
+        	}
+    	}
+
+    	List<Proposition> expected = new ArrayList<Proposition>(propNet.getPropositions());
+    	expected.removeAll(baseProps);
+    	expected.removeAll(inputProps);
+    	expected.remove(propNet.getInitProposition());
+    	expected.removeAll(order);
+
+    	// Add remaining propositions that for whatever reason are not reachable.
+    	for (Proposition p : expected) {
+    		order.add(p);
+    		BitSet p_baseSet = new BitSet(baseProps.size());
+    		BitSet p_inputSet = new BitSet(inputProps.size());
+    		orderBaseMap.put(p, p_baseSet);
+    		orderInputMap.put(p, p_inputSet);
+    	}
+
+    	System.out.println(order.size());
+    	System.out.println(propNet.getPropositions().size() - 1 - baseProps.size() - inputProps.size());
+
+    	baseBitMap = new HashMap<GdlSentence, BitSet>();
+    	inputBitMap = new HashMap<GdlSentence, BitSet>();
+
+    	System.out.println("MAKING MAPS: ");
+
+    	// Get the bit maps
+    	for (int i=0; i<baseSentence.size(); i++) {
+    		GdlSentence g = baseSentence.get(i);
+    		BitSet thisB = new BitSet(order.size());
+    		for (int j=0; j<order.size(); j++) {
+    			Proposition p = order.get(j);
+    			if (orderBaseMap.get(p).get(i)) {
+    				thisB.set(j);
+    			}
+    		}
+    		baseBitMap.put(g, thisB);
+    	}
+
+    	System.out.println("INPUT MAP: ");
+
+    	for (int i=0; i<inputSentence.size(); i++) {
+    		GdlSentence g = inputSentence.get(i);
+    		BitSet thisB = new BitSet(order.size());
+    		for (int j=0; j<order.size(); j++) {
+    			Proposition p = order.get(j);
+    			if (orderInputMap.get(p).get(i)) {
+    				thisB.set(j);
+    			}
+    		}
+    		inputBitMap.put(g, thisB);
+    	}
+
+    	System.out.println("DONE!");
+
+    	return order;
+    }
+
+    public List<Proposition> getOrderingObsolete()
+    {
+    	// Ordered list of base props and input props (for bit maps)
+    	List<Proposition> baseProps = new ArrayList<Proposition>();
+    	List<Proposition> inputProps = new ArrayList<Proposition>();
+
+    	List<GdlSentence> baseSentence = new ArrayList<GdlSentence>();
+    	List<GdlSentence> inputSentence = new ArrayList<GdlSentence>();
+
+    	// Order to input map
+    	Map<Proposition, BitSet> orderInputMap = new HashMap<Proposition, BitSet>();
+
+    	// Order to base map
+    	Map<Proposition, BitSet> orderBaseMap = new HashMap<Proposition, BitSet>();
+
+    	// Propositions to check
+    	List<Proposition> searchProps = new ArrayList<Proposition>();
+    	for (GdlSentence g : propNet.getBasePropositions().keySet()) {
+    		baseSentence.add(g);
+    		baseProps.add(propNet.getBasePropositions().get(g));
+    	}
+
+    	for (GdlSentence g : propNet.getInputPropositions().keySet()) {
+    		inputSentence.add(g);
+    		inputProps.add(propNet.getInputPropositions().get(g));
+    	}
+
+        // List to contain the topological ordering.
+        List<Proposition> order = new LinkedList<Proposition>();
+
+        // All of the propositions in the PropNet.
+        List<Proposition> propositions = new ArrayList<Proposition>(propNet.getPropositions());
+
+        // Remove the base, input, and init propositions
+        propositions.removeAll(baseProps);
+        propositions.removeAll(inputProps);
+        propositions.remove(propNet.getInitProposition());
+
+        // Cycle through propositions
+        List<Proposition> needOrder = new ArrayList<Proposition>(propositions);
+        int counter = 0;
+        while ( !needOrder.isEmpty() ) {
+        	Proposition p = needOrder.get(counter);
+    		BitSet p_baseSet = new BitSet(baseProps.size());
+    		BitSet p_inputSet = new BitSet(inputProps.size());
+
+        	// Check inputs to proposition.
+        	List<Component> components = new ArrayList<Component>(p.getInputs());
+        	while (!components.isEmpty()) {
+        		Component thisC = components.get(0);
+
+        		// If an ancestor is a proposition that still needs ordering, then keep
+        		if ( thisC.getClass() == Proposition.class ) {
+        			if ( needOrder.contains(thisC) ) {
+        				break;
+        			}
+        			else if ( order.contains(thisC) ) {
+        				p_baseSet.or(orderBaseMap.get(thisC));
+        				p_inputSet.or(orderInputMap.get(thisC));
+        			}
+        			else if ( baseProps.contains(thisC) ) {
+        				p_baseSet.set(baseProps.indexOf(thisC));
+        			}
+        			else if ( inputProps.contains(thisC) ) {
+        				p_inputSet.set(inputProps.indexOf(thisC));
+        			}
+        		}
+        		// If the ancestor is a transition, also ignore
+        		else if ( thisC.getClass() != Transition.class ) {
+        			// Add inputs to ancestor to the check
+        			components.addAll( thisC.getInputs() );
+        		}
+        		components.remove(0);
+        	}
+        	// Proposition ancestors are all base, inputs, or already ordered, add
+        	if ( components.isEmpty() ) {
+        		order.add(p);
         		needOrder.remove(p);
+        		orderBaseMap.put(p, p_baseSet);
+        		orderInputMap.put(p, p_inputSet);
         	}
         	// Otherwise continue checking
         	else {
@@ -428,7 +700,40 @@ public class PropNetImplementation extends StateMachine {
         	}
         }
 
-        //System.out.println( order.get(0).getInputs() );
+        System.out.println("OBS: " + order.size());
+    	baseBitMap = new HashMap<GdlSentence, BitSet>();
+    	inputBitMap = new HashMap<GdlSentence, BitSet>();
+
+    	System.out.println("MAKING MAPS: ");
+
+    	// Get the bit maps
+    	for (int i=0; i<baseSentence.size(); i++) {
+    		GdlSentence g = baseSentence.get(i);
+    		BitSet thisB = new BitSet(order.size());
+    		for (int j=0; j<order.size(); j++) {
+    			Proposition p = order.get(j);
+    			if (orderBaseMap.get(p).get(i)) {
+    				thisB.set(j);
+    			}
+    		}
+    		baseBitMap.put(g, thisB);
+    	}
+
+    	System.out.println("INPUT MAP: ");
+
+    	for (int i=0; i<inputSentence.size(); i++) {
+    		GdlSentence g = inputSentence.get(i);
+    		BitSet thisB = new BitSet(order.size());
+    		for (int j=0; j<order.size(); j++) {
+    			Proposition p = order.get(j);
+    			if (orderInputMap.get(p).get(i)) {
+    				thisB.set(j);
+    			}
+    		}
+    		inputBitMap.put(g, thisB);
+    	}
+
+    	System.out.println("DONE!");
 
         return order;
     }
