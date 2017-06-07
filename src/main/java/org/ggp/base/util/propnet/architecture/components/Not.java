@@ -19,6 +19,12 @@ public final class Not extends Component
 		return !getSingleInput().getValue();
 	}
 
+	@Override
+	public boolean getLegal()
+	{
+		return !getSingleInput().getLegal();
+	}
+
 	/**
 	 * @see org.ggp.base.util.propnet.architecture.Component#toString()
 	 */

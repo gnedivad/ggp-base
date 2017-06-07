@@ -86,6 +86,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		System.out.println("PROPNET SIZE: " + propnetStateMachine.getNumComponents());
 
 		MachineState initState = propnetStateMachine.getInitialState();
+		//propnetStateMachine.renderToFile("ASD");
 
 		//System.out.println(initStateProp);
 
@@ -98,33 +99,32 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		double rewards = 0;
 		double reward_count = 0;
 
-		MachineState state = initState;
+		propnetStateMachine.setBaseProps(initState);
 
 		while ( !checkTimeout(timeout) ) {
-			if (propnetStateMachine.findTerminalp(state)) {
+			if (propnetStateMachine.isTerminal()) {
 				reward_count++;
-				rewards = rewards + propnetStateMachine.findReward(getRole(), state);
+				rewards = rewards + propnetStateMachine.getGoal(getRole());
 
-				state = initState;
+				propnetStateMachine.setBaseProps(initState);
 			}
 			else {
 				step_count++;
-				//List<Move> ourMoves = stateMachine.getLegalMoves(state, getRole());
-				List<Move> ourMoves = propnetStateMachine.getLegalMoves(state, getRole());
+				List<Move> ourMoves = propnetStateMachine.getLegalMoves(getRole());
 
 				if (ourMoves.isEmpty()) {
 					reward_count++;
-					rewards = rewards + propnetStateMachine.findReward(getRole(), state);
+					rewards = rewards + propnetStateMachine.getGoal(getRole());
 
-					state = initState;
+					propnetStateMachine.setBaseProps(initState);
 				}
 				else {
 
 					for (int i=1; i<ourMoves.size(); i++) {
-						turn_steps = turn_steps + (propnetStateMachine.getLegalJointMoves(state, getRole(), ourMoves.get(i))).size();
+						turn_steps = turn_steps + (propnetStateMachine.getLegalJointMoves(getRole(), ourMoves.get(i))).size();
 					}
-					List<Move> simulatedMoves = propnetStateMachine.getRandomJointMove(state);
-					state = propnetStateMachine.getNextState(state,simulatedMoves);;
+					List<Move> simulatedMoves = propnetStateMachine.getRandomJointMove();
+					propnetStateMachine.toNextState(simulatedMoves);;
 					}
 			}
 		}
@@ -323,6 +323,8 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		Role role = getRole();
 		//List<Move> actions = stateMachine.getLegalMoves(state, role);
 		List<Move> actions = propnetStateMachine.getLegalMoves(state, role);
+
+		System.out.println(actions);
 
 		if (actions.size() == 1) {
 			return actions.get(0);

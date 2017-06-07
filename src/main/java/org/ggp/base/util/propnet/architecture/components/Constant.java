@@ -10,6 +10,7 @@ public final class Constant extends Component
 {
 	/** The value of the constant. */
 	private final boolean value;
+	private final boolean legal;
 
 	/**
 	 * Creates a new Constant with value <tt>value</tt>.
@@ -20,6 +21,7 @@ public final class Constant extends Component
 	public Constant(boolean value)
 	{
 		this.value = value;
+		this.legal = value;
 	}
 
 	/**
@@ -31,6 +33,12 @@ public final class Constant extends Component
 	public boolean getValue()
 	{
 		return value;
+	}
+
+	@Override
+	public boolean getLegal()
+	{
+		return legal;
 	}
 
 	/**

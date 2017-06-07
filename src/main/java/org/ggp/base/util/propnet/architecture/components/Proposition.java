@@ -14,6 +14,8 @@ public class Proposition extends Component
 	/** The value of the Proposition. */
 	private boolean value;
 
+	private boolean legal;
+
 	/**
 	 * Creates a new Proposition with name <tt>name</tt>.
 	 *
@@ -24,6 +26,7 @@ public class Proposition extends Component
 	{
 		this.name = name;
 		this.value = false;
+		this.legal = false;
 	}
 
 	/**
@@ -60,6 +63,11 @@ public class Proposition extends Component
 		return value;
 	}
 
+	public boolean getLegal()
+	{
+		return legal;
+	}
+
 	/**
 	 * Setter method.
 	 *
@@ -69,6 +77,11 @@ public class Proposition extends Component
 	public void setValue(boolean value)
 	{
 		this.value = value;
+	}
+
+	public void setLegal(boolean value)
+	{
+		this.legal = value;
 	}
 
 	/**

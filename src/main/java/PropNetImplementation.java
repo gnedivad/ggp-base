@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 import org.ggp.base.util.gdl.grammar.Gdl;
@@ -37,6 +38,7 @@ public class PropNetImplementation extends StateMachine {
 
     /** Bitset determines which ordering propositions need to be updated */
     private BitSet updateOrder;
+    private BitSet updateOrderL;
 
     /** Map from base sentences to affected ordering propositions */
     private Map<GdlSentence, BitSet> baseBitMap;
@@ -44,13 +46,21 @@ public class PropNetImplementation extends StateMachine {
     /** Map from input sentences to affected ordering propositions */
     private Map<GdlSentence, BitSet> inputBitMap;
 
+    /** Maps roles to moves */
+    private Map<Role, List<Move>> roleMoveMap;
+
+    private MachineState initState;
+
     public PropNetImplementation() {
     	this.propNet = null;
     	this.ordering = null;
     	this.roles = null;
     	this.updateOrder = null;
+    	this.updateOrderL = null;
     	this.baseBitMap = null;
     	this.inputBitMap = null;
+    	this.roleMoveMap = null;
+    	this.initState = null;
     }
 
     public PropNetImplementation( PropNetImplementation other ) {
@@ -58,8 +68,11 @@ public class PropNetImplementation extends StateMachine {
     	this.ordering = other.ordering;
     	this.roles = other.roles;
     	this.updateOrder = other.updateOrder;
+    	this.updateOrderL = other.updateOrderL;
     	this.baseBitMap = other.baseBitMap;
     	this.inputBitMap = other.inputBitMap;
+    	this.roleMoveMap = other.roleMoveMap;
+    	this.initState = other.initState;
     }
 
     /**
@@ -73,15 +86,22 @@ public class PropNetImplementation extends StateMachine {
             propNet = OptimizingPropNetFactory.create(description);
             roles = propNet.getRoles();
             ordering = getOrdering();
+            updateOrder = new BitSet(ordering.size());
+            updateOrderL = new BitSet(ordering.size());
             getBaseBitMap();
             getInputBitMap();
-            updateOrder = new BitSet(ordering.size());
+            determineMoveMap();
+            solveInitialState();
+            initializeLegalCheck();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
-        }
+        } catch (MoveDefinitionException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
     }
 
-    /**
+	/**
      * Renders prop net to file
      */
     public void renderToFile(String filename) {
@@ -148,13 +168,17 @@ public class PropNetImplementation extends StateMachine {
     	return 0;
     }
 
+    @Override
+	public MachineState getInitialState() {
+    	return initState;
+    }
+
     /**
      * Returns the initial state. The initial state can be computed
      * by only setting the truth value of the INIT proposition to true,
      * and then computing the resulting state.
      */
-    @Override
-    public MachineState getInitialState() {
+    private void solveInitialState() {
 
     	Set<GdlSentence> contents = new HashSet<GdlSentence>();
 
@@ -166,13 +190,21 @@ public class PropNetImplementation extends StateMachine {
         transitionPropNet();
 
         // Read base states after initialize transition
-        MachineState state = getStateFromBase();
+        initState = getStateFromBase();
 
         p.setValue(false);
-        return state;
+
+        propagateAll();
     }
 
-    /**
+	private void propagateAll() {
+		for (Proposition p : ordering) {
+			p.setValue( p.getSingleInput().getValue() );
+			p.setLegal( p.getSingleInput().getLegal() );
+		}
+	}
+
+	/**
      * Computes all possible actions for role.
      */
     @Override
@@ -192,6 +224,29 @@ public class PropNetImplementation extends StateMachine {
     	}
         return moves;
     }
+
+    private void determineMoveMap() throws MoveDefinitionException {
+    	roleMoveMap = new HashMap<Role, List<Move>>();
+    	for (Role r : propNet.getRoles() ) {
+    		List<Move> roleMoves = this.findActions(r);
+    		roleMoveMap.put(r, roleMoves);
+    	}
+    }
+
+
+    private void initializeLegalCheck() {
+        // Set input propositions based on possible moves
+    	Map<GdlSentence, Proposition> gmapp = propNet.getInputPropositions();
+
+    	// Set all inputs to true for check
+    	for (GdlSentence g : gmapp.keySet()) {
+    		gmapp.get(g).setLegal(true);
+    		updateOrderL.or(inputBitMap.get(g));
+    	}
+
+    	propagateLegalNet();
+	}
+
 
     /**
      * Computes the legal moves for role in state.
@@ -217,40 +272,16 @@ public class PropNetImplementation extends StateMachine {
     public List<Move> getLegalMoves(Role role)
             throws MoveDefinitionException {
     	try {
-	    	// Get all possible moves for role
-	    	List<Move> moves = findActions(role);
-
-	        // Set input propositions based on possible moves
-	    	Map<GdlSentence, Proposition> gmapp = propNet.getInputPropositions();
-
-	    	// Set only our moves to true for check
-	    	List<GdlSentence> movesGdl = toDoes(moves);
-	    	for (GdlSentence g : gmapp.keySet()) {
-	    		Proposition p = gmapp.get(g);
-	    		if (movesGdl.contains(g)) {
-	    			if (!p.getValue()) {
-	    				p.setValue(true);
-	    				updateOrder.or(inputBitMap.get(g));
-	    			}
-	    		}
-	    		else {
-	    			if (p.getValue()) {
-	    				p.setValue(false);
-	    				updateOrder.or(inputBitMap.get(g));
-	    			}
-	    		}
-	    	}
-
 	    	// Propagate
-	    	propagatePropNet();
+	    	propagateLegalNet();
 
 	        // Check legality
 	    	List<Proposition> legalProps = new ArrayList<Proposition>(propNet.getLegalPropositions().get(role));
-	    	Map<Proposition, Proposition> legalMap = propNet.getLegalInputMap();
+	    	//Map<Proposition, Proposition> legalMap = propNet.getLegalInputMap();
 	    	List<Move> legalMoves = new ArrayList<Move>();
 	    	for ( Proposition lp : legalProps )
 	    	{
-	    		if (lp.getValue()) {
+	    		if (lp.getLegal()) {
 	        		Move mv = getMoveFromProposition(lp);
 	        		legalMoves.add(mv);
 	    		}
@@ -264,7 +295,18 @@ public class PropNetImplementation extends StateMachine {
     	}
     }
 
-    /**
+    private void propagateLegalNet() {
+    	// Only update the propositions that need to be updated
+    	for (int i = updateOrderL.nextSetBit(0); i >= 0; i = updateOrderL.nextSetBit(i+1)) {
+    		// operate on index i here
+    		ordering.get(i).setLegal(ordering.get(i).getSingleInput().getLegal());
+    	}
+
+    	// Now that we have propagated, clear the ordering
+    	updateOrderL.clear();
+	}
+
+	/**
      * Computes the next state given state and the list of moves.
      */
     @Override
@@ -308,14 +350,6 @@ public class PropNetImplementation extends StateMachine {
 	    				updateOrder.or(inputBitMap.get(g));
 	    			}
 	    		}
-	    	}
-
-	    	for (Proposition p : gmapp.values()) {
-	    		p.setValue(false);
-	    	}
-
-	    	for (GdlSentence g : movesGdl) {
-	    		gmapp.get(g).setValue(true);
 	    	}
 
     		// Propagate
@@ -514,11 +548,18 @@ public class PropNetImplementation extends StateMachine {
     	// Update only base propositions that have changed and flag
     	for (GdlSentence g : pmap.keySet()) {
     		Proposition p = pmap.get(g);
-    		if ( p.getValue() != p.getSingleInput().getValue() ) {
-    			p.setValue(p.getSingleInput().getValue());
+			boolean newVal = p.getSingleInput().getValue();
+    		if ( p.getValue() != newVal ) {
+    			p.setValue(newVal);
     			updateOrder.or(baseBitMap.get(g));
     		}
+
+    		if ( p.getLegal() != newVal ) {
+    			p.setLegal(newVal);
+    			updateOrderL.or(baseBitMap.get(g));
+    		}
     	}
+    	updateOrderL.or(updateOrder);
     }
 
     /*
@@ -529,16 +570,33 @@ public class PropNetImplementation extends StateMachine {
     	// Get mapping from gdl sentence to base proposition
     	Map<GdlSentence, Proposition> pmap = propNet.getBasePropositions();
 
+    	Set<GdlSentence> ssc = state.getContents();
+
     	// Set all base propositions to false
     	for ( GdlSentence g : pmap.keySet() ) {
-    		pmap.get(g).setValue(false);
-    		updateOrder.or(baseBitMap.get(g));
+    		Proposition p = pmap.get(g);
+    		if (ssc.contains(g)) {
+    			if (!p.getValue()) {
+    				p.setValue(true);
+    	    		updateOrder.or(baseBitMap.get(g));
+    			}
+    			if(!p.getLegal()) {
+    				p.setLegal(true);
+    	    		updateOrderL.or(baseBitMap.get(g));
+    			}
+    		}
+    		else {
+    			if (p.getValue()) {
+    				p.setValue(false);
+    	    		updateOrder.or(baseBitMap.get(g));
+    			}
+    			if (p.getLegal()) {
+    				p.setLegal(false);
+    	    		updateOrderL.or(baseBitMap.get(g));
+    			}
+    		}
     	}
-
-    	// Cycle through state definition, set all corresponding propositions to true.
-    	for( GdlSentence g : state.getContents() ) {
-    		pmap.get(g).setValue(true);
-    	}
+    	updateOrderL.or(updateOrder);
     }
 
     /* Already implemented for you */
@@ -627,6 +685,36 @@ public class PropNetImplementation extends StateMachine {
      */
     public List<Move> getRandomJointMove() throws MoveDefinitionException
     {
-    	return getRandomJointMove(getStateFromBase());
+        List<Move> random = new ArrayList<Move>();
+        for (Role role : getRoles()) {
+            random.add(getRandomMove(role));
+        }
+
+        return random;
+    }
+
+    public Move getRandomMove(Role role) throws MoveDefinitionException
+    {
+        List<Move> legals = getLegalMoves(role);
+        return legals.get(new Random().nextInt(legals.size()));
+    }
+
+    public List<List<Move>> getLegalJointMoves(Role role, Move move) throws MoveDefinitionException
+    {
+        List<List<Move>> legals = new ArrayList<List<Move>>();
+        for (Role r : getRoles()) {
+            if (r.equals(role)) {
+                List<Move> m = new ArrayList<Move>();
+                m.add(move);
+                legals.add(m);
+            } else {
+                legals.add(getLegalMoves(r));
+            }
+        }
+
+        List<List<Move>> crossProduct = new ArrayList<List<Move>>();
+        crossProductLegalMoves(legals, crossProduct, new LinkedList<Move>());
+
+        return crossProduct;
     }
 }

@@ -26,6 +26,19 @@ public final class Or extends Component
 		return false;
 	}
 
+	@Override
+	public boolean getLegal()
+	{
+		for ( Component component : getInputs() )
+		{
+			if ( component.getLegal() )
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/**
 	 * @see org.ggp.base.util.propnet.architecture.Component#toString()
 	 */

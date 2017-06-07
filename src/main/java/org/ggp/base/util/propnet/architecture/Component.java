@@ -121,6 +121,8 @@ public abstract class Component implements Serializable
      */
     public abstract boolean getValue();
 
+    public abstract boolean getLegal();
+
     /**
      * Returns a representation of the Component in .dot format.
      *
