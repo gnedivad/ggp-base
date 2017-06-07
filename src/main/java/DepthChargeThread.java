@@ -7,30 +7,31 @@ import org.ggp.base.util.statemachine.Role;
 
 public class DepthChargeThread implements Runnable {
 
-	public DepthChargeThread(Role role, PropNetImplementation gameMachine, MachineState currState, long timeout, long timeBuffer) {
+	public DepthChargeThread(Role role, PropNetImplementation gameMachine, MachineState currState, long timeout, long timeBuffer, int maxDepth) {
 		thisRole = role;
 		thisMachine = gameMachine; //new PropNetImplementation((PropNetImplementation) gameMachine);
 		gameMachine.setBaseProps(currState);
 		value = 0;
 		thisTimeout = timeout;
 		thisBuffer = timeBuffer;
+		depth = maxDepth;
 
 	}
 
 	@Override
 	public void run() {
 		try {
+			int turn_count = 0;
 			while (!thisMachine.isTerminal()) {
+				turn_count++;
 				List<Move> simulatedMoves = thisMachine.getRandomJointMove();
 				thisMachine.toNextState(simulatedMoves);
-				if ( checkTimeout() ) {
+				if ( checkTimeout() || ( turn_count > depth ) ) {
 					break;
 				}
 			}
 
-			if ( thisMachine.isTerminal()) {
-				value = thisMachine.getGoal(thisRole);
-			}
+			value = thisMachine.getGoal(thisRole);
 		}
 		catch (Exception e) {
 		}
@@ -49,4 +50,5 @@ public class DepthChargeThread implements Runnable {
 	private double value;
 	private long thisTimeout;
 	private long thisBuffer;
+	private int depth;
 }

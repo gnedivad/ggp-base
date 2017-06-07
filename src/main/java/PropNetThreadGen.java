@@ -7,9 +7,11 @@ public class PropNetThreadGen implements Runnable {
 
 	private List<Gdl> gameDes;
 	private PropNetImplementation outNet;
+	private long thisTime;
 
-	public PropNetThreadGen(List<Gdl> description) {
+	public PropNetThreadGen(List<Gdl> description, long timeout) {
 		gameDes = description;
+		thisTime = timeout;
 		outNet = null;
 	}
 
@@ -17,7 +19,7 @@ public class PropNetThreadGen implements Runnable {
 	public void run() {
 		try {
 			outNet = new PropNetImplementation();
-			outNet.initialize(gameDes);
+			outNet.initialize(gameDes, thisTime);
 		}
 		catch (Exception e) {
 		}

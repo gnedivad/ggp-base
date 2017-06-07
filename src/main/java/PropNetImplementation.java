@@ -51,6 +51,8 @@ public class PropNetImplementation extends StateMachine {
 
     private MachineState initState;
 
+    private boolean maps;
+
     public PropNetImplementation() {
     	this.propNet = null;
     	this.ordering = null;
@@ -61,6 +63,7 @@ public class PropNetImplementation extends StateMachine {
     	this.inputBitMap = null;
     	this.roleMoveMap = null;
     	this.initState = null;
+    	this.maps = false;
     }
 
     public PropNetImplementation( PropNetImplementation other ) {
@@ -73,16 +76,40 @@ public class PropNetImplementation extends StateMachine {
     	this.inputBitMap = other.inputBitMap;
     	this.roleMoveMap = other.roleMoveMap;
     	this.initState = other.initState;
+    	this.maps = other.maps;
     }
+
+	private Boolean checkTimeout(long timeout, long buffer) {
+		return (timeout - System.currentTimeMillis() < buffer);
+	}
+
+	@Override
+	public void initialize(List<Gdl> description) {
+    	this.propNet = null;
+    	this.ordering = null;
+    	this.roles = null;
+    	this.updateOrder = null;
+    	this.updateOrderL = null;
+    	this.baseBitMap = null;
+    	this.inputBitMap = null;
+    	this.roleMoveMap = null;
+    	this.initState = null;
+    	this.maps = false;
+	}
 
     /**
      * Initializes the PropNetStateMachine. You should compute the topological
      * ordering here. Additionally you may compute the initial state here, at
      * your discretion.
      */
-    @Override
-    public void initialize(List<Gdl> description) {
+    public void initialize(List<Gdl> description, long timeout) {
         try {
+        	// Use only a third of the time for setup
+        	long buffer = 2 * ( timeout - System.currentTimeMillis() ) / 3 + 1000;
+        	System.out.println(buffer);
+
+        	this.maps = false;
+
         	System.out.println("CREATING PROPNET: ");
             propNet = OptimizingPropNetFactory.create(description);
             roles = propNet.getRoles();
@@ -92,6 +119,11 @@ public class PropNetImplementation extends StateMachine {
         	System.out.println("ORDERING: ");
             //List<Proposition> otherOrder = getOrdering();
             ordering = getOrderingObsolete();
+            solveInitialState();
+
+            if (checkTimeout( timeout, buffer )) {
+            	return;
+            }
 
             //for (Proposition p : ordering) {
             //	if (!otherOrder.contains(p)) {
@@ -100,14 +132,30 @@ public class PropNetImplementation extends StateMachine {
             //}
 
         	//ordering = getOrdering();
-            //System.out.println("BASE MAP: ");
-            //getBaseBitMap();
-        	//System.out.println("INPUT MAP: ");
-            //getInputBitMap();
+            System.out.println("BASE MAP: ");
+            getBaseBitMap();
+
+            if (checkTimeout( timeout, buffer )) {
+            	return;
+            }
+
+        	System.out.println("INPUT MAP: ");
+            getInputBitMap();
+
+            if (checkTimeout( timeout, buffer )) {
+            	return;
+            }
+
         	System.out.println("MOVE MAP: ");
             determineMoveMap();
-            solveInitialState();
+
+            if (checkTimeout( timeout, buffer )) {
+            	return;
+            }
+
             initializeLegalCheck();
+
+            this.maps = true;
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } catch (MoveDefinitionException e) {
@@ -311,14 +359,22 @@ public class PropNetImplementation extends StateMachine {
     }
 
     private void propagateLegalNet() {
-    	// Only update the propositions that need to be updated
-    	for (int i = updateOrderL.nextSetBit(0); i >= 0; i = updateOrderL.nextSetBit(i+1)) {
-    		// operate on index i here
-    		ordering.get(i).setLegal(ordering.get(i).getSingleInput().getLegal());
-    	}
 
-    	// Now that we have propagated, clear the ordering
-    	updateOrderL.clear();
+    	if (this.maps) {
+	    	// Only update the propositions that need to be updated
+	    	for (int i = updateOrderL.nextSetBit(0); i >= 0; i = updateOrderL.nextSetBit(i+1)) {
+	    		// operate on index i here
+	    		ordering.get(i).setLegal(ordering.get(i).getSingleInput().getLegal());
+	    	}
+
+	    	// Now that we have propagated, clear the ordering
+	    	updateOrderL.clear();
+    	}
+    	else {
+    		for (Proposition p : ordering) {
+    			p.setLegal( p.getSingleInput().getLegal() );
+    		}
+    	}
 	}
 
 	/**
@@ -356,13 +412,17 @@ public class PropNetImplementation extends StateMachine {
 	    		if (movesGdl.contains(g)) {
 	    			if ( !p.getValue() ) {
 	    				p.setValue(true);
-	    				updateOrder.or(inputBitMap.get(g));
+	    				if (this.maps) {
+	    					updateOrder.or(inputBitMap.get(g));
+	    				}
 	    			}
 	    		}
 	    		else {
 	    			if ( p.getValue() ) {
 	    				p.setValue(false);
-	    				updateOrder.or(inputBitMap.get(g));
+	    				if (this.maps) {
+	    					updateOrder.or(inputBitMap.get(g));
+	    				}
 	    			}
 	    		}
 	    	}
@@ -612,30 +672,6 @@ public class PropNetImplementation extends StateMachine {
 
     public List<Proposition> getOrderingObsolete()
     {
-    	// Ordered list of base props and input props (for bit maps)
-    	List<Proposition> baseProps = new ArrayList<Proposition>();
-    	List<Proposition> inputProps = new ArrayList<Proposition>();
-
-    	List<GdlSentence> baseSentence = new ArrayList<GdlSentence>();
-    	List<GdlSentence> inputSentence = new ArrayList<GdlSentence>();
-
-    	// Order to input map
-    	Map<Proposition, BitSet> orderInputMap = new HashMap<Proposition, BitSet>();
-
-    	// Order to base map
-    	Map<Proposition, BitSet> orderBaseMap = new HashMap<Proposition, BitSet>();
-
-    	// Propositions to check
-    	List<Proposition> searchProps = new ArrayList<Proposition>();
-    	for (GdlSentence g : propNet.getBasePropositions().keySet()) {
-    		baseSentence.add(g);
-    		baseProps.add(propNet.getBasePropositions().get(g));
-    	}
-
-    	for (GdlSentence g : propNet.getInputPropositions().keySet()) {
-    		inputSentence.add(g);
-    		inputProps.add(propNet.getInputPropositions().get(g));
-    	}
 
         // List to contain the topological ordering.
         List<Proposition> order = new LinkedList<Proposition>();
@@ -644,8 +680,8 @@ public class PropNetImplementation extends StateMachine {
         List<Proposition> propositions = new ArrayList<Proposition>(propNet.getPropositions());
 
         // Remove the base, input, and init propositions
-        propositions.removeAll(baseProps);
-        propositions.removeAll(inputProps);
+        propositions.removeAll(propNet.getBasePropositions().values());
+        propositions.removeAll(propNet.getInputPropositions().values());
         propositions.remove(propNet.getInitProposition());
 
         // Cycle through propositions
@@ -653,8 +689,6 @@ public class PropNetImplementation extends StateMachine {
         int counter = 0;
         while ( !needOrder.isEmpty() ) {
         	Proposition p = needOrder.get(counter);
-    		BitSet p_baseSet = new BitSet(baseProps.size());
-    		BitSet p_inputSet = new BitSet(inputProps.size());
 
         	// Check inputs to proposition.
         	List<Component> components = new ArrayList<Component>(p.getInputs());
@@ -665,16 +699,6 @@ public class PropNetImplementation extends StateMachine {
         		if ( thisC.getClass() == Proposition.class ) {
         			if ( needOrder.contains(thisC) ) {
         				break;
-        			}
-        			else if ( order.contains(thisC) ) {
-        				p_baseSet.or(orderBaseMap.get(thisC));
-        				p_inputSet.or(orderInputMap.get(thisC));
-        			}
-        			else if ( baseProps.contains(thisC) ) {
-        				p_baseSet.set(baseProps.indexOf(thisC));
-        			}
-        			else if ( inputProps.contains(thisC) ) {
-        				p_inputSet.set(inputProps.indexOf(thisC));
         			}
         		}
         		// If the ancestor is a transition, also ignore
@@ -688,8 +712,6 @@ public class PropNetImplementation extends StateMachine {
         	if ( components.isEmpty() ) {
         		order.add(p);
         		needOrder.remove(p);
-        		orderBaseMap.put(p, p_baseSet);
-        		orderInputMap.put(p, p_inputSet);
         	}
         	// Otherwise continue checking
         	else {
@@ -701,39 +723,6 @@ public class PropNetImplementation extends StateMachine {
         }
 
         System.out.println("OBS: " + order.size());
-    	baseBitMap = new HashMap<GdlSentence, BitSet>();
-    	inputBitMap = new HashMap<GdlSentence, BitSet>();
-
-    	System.out.println("MAKING MAPS: ");
-
-    	// Get the bit maps
-    	for (int i=0; i<baseSentence.size(); i++) {
-    		GdlSentence g = baseSentence.get(i);
-    		BitSet thisB = new BitSet(order.size());
-    		for (int j=0; j<order.size(); j++) {
-    			Proposition p = order.get(j);
-    			if (orderBaseMap.get(p).get(i)) {
-    				thisB.set(j);
-    			}
-    		}
-    		baseBitMap.put(g, thisB);
-    	}
-
-    	System.out.println("INPUT MAP: ");
-
-    	for (int i=0; i<inputSentence.size(); i++) {
-    		GdlSentence g = inputSentence.get(i);
-    		BitSet thisB = new BitSet(order.size());
-    		for (int j=0; j<order.size(); j++) {
-    			Proposition p = order.get(j);
-    			if (orderInputMap.get(p).get(i)) {
-    				thisB.set(j);
-    			}
-    		}
-    		inputBitMap.put(g, thisB);
-    	}
-
-    	System.out.println("DONE!");
 
         return order;
     }
@@ -832,14 +821,22 @@ public class PropNetImplementation extends StateMachine {
      */
     private void propagatePropNet()
     {
-    	// Only update the propositions that need to be updated
-    	for (int i = updateOrder.nextSetBit(0); i >= 0; i = updateOrder.nextSetBit(i+1)) {
-    		// operate on index i here
-    		ordering.get(i).setValue(ordering.get(i).getSingleInput().getValue());
-    	}
 
-    	// Now that we have propagated, clear the ordering
-    	updateOrder.clear();
+    	if (this.maps) {
+	    	// Only update the propositions that need to be updated
+	    	for (int i = updateOrder.nextSetBit(0); i >= 0; i = updateOrder.nextSetBit(i+1)) {
+	    		// operate on index i here
+	    		ordering.get(i).setValue(ordering.get(i).getSingleInput().getValue());
+	    	}
+
+	    	// Now that we have propagated, clear the ordering
+	    	updateOrder.clear();
+    	}
+    	else {
+    		for (Proposition p : ordering) {
+    			p.setValue( p.getSingleInput().getValue() );
+    		}
+    	}
     }
 
     /*
@@ -856,15 +853,22 @@ public class PropNetImplementation extends StateMachine {
 			boolean newVal = p.getSingleInput().getValue();
     		if ( p.getValue() != newVal ) {
     			p.setValue(newVal);
-    			updateOrder.or(baseBitMap.get(g));
+    			if (this.maps) {
+    				updateOrder.or(baseBitMap.get(g));
+    			}
     		}
 
     		if ( p.getLegal() != newVal ) {
     			p.setLegal(newVal);
-    			updateOrderL.or(baseBitMap.get(g));
+    			if (this.maps) {
+    				updateOrderL.or(baseBitMap.get(g));
+    			}
     		}
     	}
-    	updateOrderL.or(updateOrder);
+
+    	if (this.maps) {
+    		updateOrderL.or(updateOrder);
+    	}
     }
 
     /*
@@ -883,25 +887,35 @@ public class PropNetImplementation extends StateMachine {
     		if (ssc.contains(g)) {
     			if (!p.getValue()) {
     				p.setValue(true);
-    	    		updateOrder.or(baseBitMap.get(g));
+    				if (this.maps) {
+    					updateOrder.or(baseBitMap.get(g));
+    				}
     			}
     			if(!p.getLegal()) {
     				p.setLegal(true);
-    	    		updateOrderL.or(baseBitMap.get(g));
+    				if (this.maps) {
+    					updateOrderL.or(baseBitMap.get(g));
+    				}
     			}
     		}
     		else {
     			if (p.getValue()) {
     				p.setValue(false);
-    	    		updateOrder.or(baseBitMap.get(g));
+    				if (this.maps) {
+        	    		updateOrder.or(baseBitMap.get(g));
+    				}
     			}
     			if (p.getLegal()) {
     				p.setLegal(false);
-    	    		updateOrderL.or(baseBitMap.get(g));
+    				if (this.maps) {
+    					updateOrderL.or(baseBitMap.get(g));
+    				}
     			}
     		}
     	}
-    	updateOrderL.or(updateOrder);
+    	if (this.maps) {
+    		updateOrderL.or(updateOrder);
+    	}
     }
 
     /* Already implemented for you */
@@ -1015,6 +1029,19 @@ public class PropNetImplementation extends StateMachine {
             } else {
                 legals.add(getLegalMoves(r));
             }
+        }
+
+        List<List<Move>> crossProduct = new ArrayList<List<Move>>();
+        crossProductLegalMoves(legals, crossProduct, new LinkedList<Move>());
+
+        return crossProduct;
+    }
+
+    public List<List<Move>> getLegalJointMoves() throws MoveDefinitionException
+    {
+        List<List<Move>> legals = new ArrayList<List<Move>>();
+        for (Role role : getRoles()) {
+            legals.add(getLegalMoves(role));
         }
 
         List<List<Move>> crossProduct = new ArrayList<List<Move>>();

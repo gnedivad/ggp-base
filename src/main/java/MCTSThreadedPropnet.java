@@ -37,6 +37,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 	private double opp_mob_heuristic_weight;
 	private PropNetImplementation propnetStateMachine;
 	private List<PropNetImplementation> threadNets;
+	private int charge_depth;
 
 	@Override
 	public StateMachine getInitialStateMachine() {
@@ -51,8 +52,9 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		timeBuffer = 1000;
 		cweight = 15;
 		depth_max = 100;
+		charge_depth = 0;
 		num_depth_charges = 0;
-		pd_count = 10;
+		pd_count = 11;
 		num_cpus = Runtime.getRuntime().availableProcessors(); // Update this based on number of threads you can run
 
 		// Create thread propnets
@@ -61,7 +63,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		List<PropNetThreadGen> ptthreads = new ArrayList<PropNetThreadGen>();
 
 		for (int i = 0; i < num_cpus; i++) {
-			PropNetThreadGen pt = new PropNetThreadGen(getMatch().getGame().getRules());
+			PropNetThreadGen pt = new PropNetThreadGen(getMatch().getGame().getRules(), timeout);
 			Thread t = new Thread( pt );
 			t.start();
 			runthreads.add(t);
@@ -98,34 +100,40 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		double step_count = 0;
 		double rewards = 0;
 		double reward_count = 0;
-
-		propnetStateMachine.setBaseProps(initState);
+		long total_game_time = 0;
 
 		while ( !checkTimeout(timeout) ) {
-			if (propnetStateMachine.isTerminal()) {
-				reward_count++;
-				rewards = rewards + propnetStateMachine.getGoal(getRole());
+			List<Thread> runthreads2 = new ArrayList<Thread>();
+			List<InitChargeThread> dcthreads = new ArrayList<InitChargeThread>();
 
-				propnetStateMachine.setBaseProps(initState);
+			// Only start as many threads as there are cpus
+			for (int j = 0; j < num_cpus; j++) {
+				InitChargeThread dct = new InitChargeThread(getRole(), threadNets.get(j), initState, timeout, timeBuffer);
+				Thread t = new Thread( dct );
+				t.start();
+				runthreads2.add(t);
+				dcthreads.add(dct);
 			}
-			else {
-				step_count++;
-				List<Move> ourMoves = propnetStateMachine.getLegalMoves(getRole());
 
-				if (ourMoves.isEmpty()) {
-					reward_count++;
-					rewards = rewards + propnetStateMachine.getGoal(getRole());
-
-					propnetStateMachine.setBaseProps(initState);
+			// Wait for all threads to finish
+			for (int j=0; j<num_cpus; j++) {
+				try {
+					runthreads2.get(j).join();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
-				else {
+			}
 
-					for (int i=1; i<ourMoves.size(); i++) {
-						turn_steps = turn_steps + (propnetStateMachine.getLegalJointMoves(getRole(), ourMoves.get(i))).size();
-					}
-					List<Move> simulatedMoves = propnetStateMachine.getRandomJointMove();
-					propnetStateMachine.toNextState(simulatedMoves);;
-					}
+			// Add depth charge score to total and count
+			for (int j=0; j<num_cpus; j++) {
+				if (dcthreads.get(j).complete()) {
+					rewards = rewards + dcthreads.get(j).getValue();
+					reward_count++;
+					step_count = step_count + dcthreads.get(j).getStepCount();
+					turn_steps = turn_steps + dcthreads.get(j).getMoveCount();
+					total_game_time = total_game_time + dcthreads.get(j).getGameTime();
+				}
 			}
 		}
 		cweight = 0.8*(rewards / reward_count) / Math.sqrt(Math.log(turn_steps / step_count));
@@ -134,6 +142,16 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		System.out.println(reward_count);
 		System.out.println(turn_steps);
 		System.out.println(step_count);
+		System.out.println(total_game_time / reward_count);
+
+		// Calculate approximate charge depth based on how long it takes to play a game and how many moves there are per turn
+
+		while( charge_depth < 3 ) {
+			pd_count--;
+			charge_depth = (int) ((3000 * step_count * step_count * reward_count) / (total_game_time * pd_count * turn_steps));
+		}
+		System.out.println(pd_count);
+		System.out.println(charge_depth);
 	}
 
 	private MCTSNode select(MCTSNode node, int depth) {
@@ -388,7 +406,13 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 		for (int i = 0; i < root.getNumChildren(); i++) {
 			MCTSNode child = root.getChild(i);
-			int utility = child.getUtility() / child.getNumVisits();
+			int utility = 0;
+			if (child.getNumVisits() == 0) {
+				utility = child.getUtility();
+			}
+			else {
+				utility = child.getUtility() / child.getNumVisits();
+			}
 			//int utility = selectfn(child);
 			System.out.println("child " + i + " " + child.getAction() + " " + utility + " " + child.getNumVisits());
 			if (utility > maxUtility) {
@@ -425,7 +449,7 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 
 				// Only start as many threads as there are cpus
 				for (int j = 0; j < num_cpus; j++) {
-					DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(j), state, timeout, timeBuffer);
+					DepthChargeThread dct = new DepthChargeThread(role, threadNets.get(j), state, timeout, timeBuffer, charge_depth);
 					Thread t = new Thread( dct );
 					t.start();
 					runthreads.add(t);
