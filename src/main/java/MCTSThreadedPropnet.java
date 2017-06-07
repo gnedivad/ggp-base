@@ -155,16 +155,16 @@ public class MCTSThreadedPropnet extends StateMachineGamer {
 		double moves_per_turn = (turn_steps / step_count);
 		double ave_game_time = (total_game_time / reward_count);
 		double ave_game_step = (step_count / reward_count);
-		while( charge_depth < 3 && pd_count > 1) {
+		while( charge_depth < 13 && pd_count > 1) {
 			pd_count--;
 			charge_depth = (int) ( (1000*ave_game_step) / (ave_game_time * moves_per_turn * pd_count) );
 		}
 
-		if ( charge_depth < 3 ) {
-			charge_depth = 3;
+		if ( charge_depth < 13 ) {
+			charge_depth = 13;
 		}
 		else {
-			charge_depth = (int) (math.ceil( charge_depth / 2 ) * 2) - 1;
+			charge_depth = (int) (math.floor( charge_depth / 12 ) * 12) + 1;
 		}
 
 		double totWeight = cumulative_rewards + turn_steps;
